@@ -1,6 +1,4 @@
-<!-- Add a screenshot at docs/images/easy-notes-card.png and uncomment:
-<img width="100%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/images/easy-notes-card.png" />
--->
+<img width="50%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card.png" />
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-blue.svg)](https://github.com/hacs/plugin)
 [![HACS validation](https://img.shields.io/github/actions/workflow/status/jayjojayson/easy-notes-card/validate.yml?label=HACS%20Validation)](https://github.com/jayjojayson/easy-notes-card/actions?query=workflow%3Avalidate)
@@ -18,6 +16,13 @@
 Your notes are stored in the Home Assistant **user storage**: per user account on the server, so they are available on every device — no helper entities, no extra integration, no YAML needed.
 
 If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
+
+<details>
+   <summary> <b>More images of the card</b></summary>
+
+<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-2.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-4.png" />  
+<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-3d.png" />
+</details>
 
 ### ✨ Features
 
