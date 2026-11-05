@@ -1,5 +1,3 @@
-<img width="50%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card.png" />
-
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-blue.svg)](https://github.com/hacs/plugin)
 [![HACS validation](https://img.shields.io/github/actions/workflow/status/jayjojayson/easy-notes-card/validate.yml?label=HACS%20Validation)](https://github.com/jayjojayson/easy-notes-card/actions?query=workflow%3Avalidate)
 [![GitHub release](https://img.shields.io/github/release/jayjojayson/easy-notes-card?include_prereleases=&sort=semver&color=blue)](https://github.com/jayjojayson/easy-notes-card/releases)
@@ -17,12 +15,7 @@ Die Notizen liegen im **User-Speicher von Home Assistant**: pro Benutzerkonto au
 
 Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 
-<details>
-   <summary> <b>Weitere Bilder der Card</b></summary>
-
-<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-2.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-4.png" />  
-<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-3d.png" />
-</details>
+<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-2.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-4.png" />  <img width="50%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-3d.png" /> 
 
 ### ✨ Features
 
