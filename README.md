@@ -11,7 +11,7 @@
 
 📝 The Easy Notes Card is a note card for Home Assistant. Write quick notes right on your dashboard — with Markdown, colors, categories, reminders, drag & drop sorting and a graph view that connects your notes through their categories.
 
-Your notes are stored in the Home Assistant **user storage**: per user account on the server, so they are available on every device — no helper entities, no extra integration, no YAML needed.
+Your notes are stored in the Home Assistant storage on the server — **shared for all users** (default) or per user account — so they are available on every device. No helper entities, no extra integration, no YAML needed.
 
 If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 
@@ -47,6 +47,7 @@ If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 **Operation**
 - **Visual editor**: everything is configurable in the Home Assistant UI — no YAML required.
 - **Localization**: English and German (follows your Home Assistant language).
+- **Shared notes**: by default all users see the same set of notes — administrators edit, everyone else reads. Optionally every user account can have its own notes instead.
 - **Resizable**: width and height come from the Home Assistant layout (Sections view). With automatic height the card grows with the notes, with a fixed height the note list scrolls inside the card.
 
 ---
@@ -96,6 +97,7 @@ Everything else is optional.
 | Setting | YAML key | What it does |
 |---|---|---|
 | Title | `title` | Heading of the card. |
+| Storage location | `storage` | `shared` (default): all users see the same notes. `user`: every account has its own notes — see [Where are my notes stored?](#where-are-my-notes-stored). |
 | Storage key | `storage_key` | Name under which the notes are stored. **Cards with the same key show the same notes**; a different key gives you a separate set of notes. |
 | Default view | `default_view` | Start with the notes view (`notes`) or the graph view (`graph`). |
 | Search | `show_search` | Show the search field. |
@@ -111,6 +113,7 @@ Everything else is optional.
 ```yaml
 type: custom:easy-notes-card
 title: Easy Notes
+storage: shared                # shared = for all users (default) | user = per user
 storage_key: easy_notes_data   # same key = same notes
 default_view: notes            # notes | graph
 show_search: true
@@ -124,11 +127,22 @@ snooze_minutes: 10
 
 #### Where are my notes stored?
 
-The notes are saved with the Home Assistant WebSocket calls `frontend/get_user_data` and `frontend/set_user_data`. That means:
+You choose the **storage location** in the card editor (`storage` in YAML):
 
-- The notes live **on the server, per Home Assistant user account** — they follow you from phone to tablet to desktop.
-- Every user has their own notes. Two users do not see each other's notes, even with the same `storage_key`.
-- The notes are part of your Home Assistant backup (`.storage`).
+| | Shared for all users (`storage: shared`, default) | Per user (`storage: user`) |
+|---|---|---|
+| Who sees the notes? | All users see the same notes, on all devices. | Every account has its own notes, on all devices. |
+| Who can edit? | **Administrators only.** Everyone else sees the notes with a *Read only* hint. | The user. |
+| Where are they stored? | `.storage/frontend.system_data` (`frontend/get_system_data`, `frontend/set_system_data`) | Home Assistant user storage (`frontend/get_user_data`, `frontend/set_user_data`) |
+| Requirement | A recent Home Assistant version. | – |
+
+In both cases the notes live **on the server**, follow you from phone to tablet to desktop and are part of your Home Assistant backup (`.storage`). The `storage_key` separates different sets of notes within the same location.
+
+**Shared storage (default) — good to know**
+- **Take over your notes:** if the shared storage is still empty and you are an administrator with personal notes, the card offers *Copy to shared storage* or *Start empty*. A copy is made, your personal notes stay untouched.
+- **Read only for non-administrators:** there is no "New" button, no edit buttons, no checking off tasks, no buttons on due reminders and no import. Export and the graph view still work.
+- **Older Home Assistant versions** without shared storage: the card shows a hint and suggests switching to *Per user*. Nothing is saved in that case and nothing is lost.
+- **Update from v1.0.6 or earlier:** the default is now the shared storage, so a card without a `storage` setting starts with the (empty) shared notes. Your personal notes are not deleted: as an administrator you are offered to copy them over — or set `storage: user` to keep working with them as before.
 
 #### Reminders — good to know
 
@@ -137,7 +151,9 @@ Reminders are checked **in the browser**. They only fire while a dashboard with 
 #### Troubleshooting
 
 - **Card is not found / "Custom element doesn't exist":** check that the resource is added as a *JavaScript Module* and reload the browser cache (`Ctrl+F5`).
-- **Notes are missing on another device:** make sure you are logged in with the same Home Assistant user and the cards use the same `storage_key`.
+- **Notes are missing on another device:** make sure you are logged in with the same Home Assistant user (or use the shared storage) and the cards use the same `storage_key`.
+- **"Read only" is shown / I cannot edit:** shared notes can only be changed by administrators. Switch the storage location to *Per user* if everyone should have their own notes.
+- **"This Home Assistant version does not support shared storage yet":** update Home Assistant or switch the storage location to *Per user*.
 - **"The notes could not be saved":** the connection to Home Assistant was interrupted. The next change tries again.
 - **Reminder does not fire:** the dashboard has to be open in a browser (see above).
 

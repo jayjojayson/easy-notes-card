@@ -11,7 +11,7 @@
 
 📝 Die Easy Notes Card ist eine Notiz-Card für Home Assistant. Schreibe schnelle Notizen direkt auf dein Dashboard – mit Markdown, Farben, Kategorien, Erinnerungen, Verschieben per Drag & Drop und einer Netzansicht, die deine Notizen über ihre Kategorien miteinander verbindet.
 
-Die Notizen liegen im **User-Speicher von Home Assistant**: pro Benutzerkonto auf dem Server und damit auf jedem Gerät verfügbar – keine Helfer-Entitäten, keine zusätzliche Integration, kein YAML nötig.
+Die Notizen liegen im Speicher von Home Assistant auf dem Server – **gemeinsam für alle Benutzer** (Standard) oder pro Benutzerkonto – und sind damit auf jedem Gerät verfügbar. Keine Helfer-Entitäten, keine zusätzliche Integration, kein YAML nötig.
 
 Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 
@@ -45,6 +45,7 @@ Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 **Bedienung**
 - **Visueller Editor**: Alles ist im Home-Assistant-UI einstellbar – kein YAML nötig.
 - **Lokalisierung**: Deutsch und Englisch (folgt der Home-Assistant-Sprache).
+- **Gemeinsame Notizen**: Standardmäßig sehen alle Benutzer denselben Notizbestand – Administratoren bearbeiten, alle anderen lesen. Auf Wunsch hat jedes Benutzerkonto stattdessen eigene Notizen.
 - **Größe**: Breite und Höhe legst du im HA-Layout fest (Sections-Ansicht). Bei automatischer Höhe wächst die Card mit den Notizen, bei fester Höhe scrollt die Notizliste innerhalb der Card.
 
 ---
@@ -94,6 +95,7 @@ Alles andere ist optional.
 | Einstellung | YAML-Schlüssel | Was sie macht |
 |---|---|---|
 | Titel | `title` | Überschrift der Card. |
+| Speicherort | `storage` | `shared` (Standard): Alle Benutzer sehen dieselben Notizen. `user`: Jedes Konto hat eigene Notizen – siehe [Wo liegen meine Notizen?](#wo-liegen-meine-notizen). |
 | Speicher-Schlüssel | `storage_key` | Name, unter dem die Notizen gespeichert werden. **Cards mit demselben Schlüssel zeigen dieselben Notizen**; ein anderer Schlüssel ergibt einen eigenen Notizsatz. |
 | Startansicht | `default_view` | Mit der Notizansicht (`notes`) oder der Netzansicht (`graph`) starten. |
 | Suche | `show_search` | Suchfeld anzeigen. |
@@ -109,6 +111,7 @@ Alles andere ist optional.
 ```yaml
 type: custom:easy-notes-card
 title: Easy Notes
+storage: shared                # shared = für alle Benutzer (Standard) | user = pro Benutzer
 storage_key: easy_notes_data   # gleicher Schlüssel = gleiche Notizen
 default_view: notes            # notes | graph
 show_search: true
@@ -122,11 +125,22 @@ snooze_minutes: 10
 
 #### Wo liegen meine Notizen?
 
-Die Notizen werden über die Home-Assistant-WebSocket-Aufrufe `frontend/get_user_data` und `frontend/set_user_data` gespeichert. Das heißt:
+Den **Speicherort** wählst du im Card-Editor (`storage` in YAML):
 
-- Die Notizen liegen **auf dem Server, pro Home-Assistant-Benutzer** – sie folgen dir vom Handy zum Tablet und zum Desktop.
-- Jeder Benutzer hat eigene Notizen. Zwei Benutzer sehen die Notizen des anderen nicht, auch nicht mit demselben `storage_key`.
-- Die Notizen sind Teil deines Home-Assistant-Backups (`.storage`).
+| | Gemeinsam für alle Benutzer (`storage: shared`, Standard) | Pro Benutzer (`storage: user`) |
+|---|---|---|
+| Wer sieht die Notizen? | Alle Benutzer sehen dieselben Notizen, auf allen Geräten. | Jedes Konto hat eigene Notizen, auf allen Geräten. |
+| Wer darf ändern? | **Nur Administratoren.** Alle anderen sehen die Notizen mit dem Hinweis „Nur lesen“. | Der Benutzer selbst. |
+| Wo gespeichert? | `.storage/frontend.system_data` (`frontend/get_system_data`, `frontend/set_system_data`) | Home-Assistant-User-Speicher (`frontend/get_user_data`, `frontend/set_user_data`) |
+| Voraussetzung | Eine aktuelle Home-Assistant-Version. | – |
+
+In beiden Fällen liegen die Notizen **auf dem Server**, folgen dir vom Handy zum Tablet und zum Desktop und sind Teil deines Home-Assistant-Backups (`.storage`). Der `storage_key` trennt verschiedene Notizsätze innerhalb desselben Speicherorts.
+
+**Gemeinsamer Speicher (Standard) – gut zu wissen**
+- **Eigene Notizen übernehmen:** Ist der gemeinsame Speicher noch leer und du hast als Administrator eigene Notizen, bietet die Card „In den gemeinsamen Speicher übernehmen“ oder „Leer starten“ an. Übernommen wird eine Kopie, deine persönlichen Notizen bleiben erhalten.
+- **Nur lesen für Nicht-Administratoren:** Es gibt kein „Neu“, keine Bearbeitungs-Buttons, kein Abhaken, keine Buttons bei fälligen Erinnerungen und keinen Import. Exportieren und die Netzansicht funktionieren weiterhin.
+- **Ältere Home-Assistant-Versionen** ohne gemeinsamen Speicher: Die Card zeigt einen Hinweis und empfiehlt den Wechsel zu „Pro Benutzer“. Dann wird nichts gespeichert und nichts geht verloren.
+- **Update von v1.0.6 oder älter:** Standard ist jetzt der gemeinsame Speicher, eine Card ohne `storage`-Angabe startet daher mit den (leeren) gemeinsamen Notizen. Deine persönlichen Notizen werden nicht gelöscht: Als Administrator wird dir angeboten, sie zu übernehmen – oder du setzt `storage: user` und arbeitest wie bisher damit weiter.
 
 #### Erinnerungen – gut zu wissen
 
@@ -135,7 +149,9 @@ Erinnerungen werden **im Browser** geprüft. Sie lösen nur aus, solange ein Das
 #### Fehlerbehebung
 
 - **Card wird nicht gefunden / „Custom element doesn't exist“:** Prüfe, dass die Ressource als *JavaScript-Modul* eingetragen ist, und leere den Browser-Cache (`Strg+F5`).
-- **Notizen fehlen auf einem anderen Gerät:** Stelle sicher, dass du mit demselben Home-Assistant-Benutzer angemeldet bist und die Cards denselben `storage_key` nutzen.
+- **Notizen fehlen auf einem anderen Gerät:** Stelle sicher, dass du mit demselben Home-Assistant-Benutzer angemeldet bist (oder den gemeinsamen Speicher nutzt) und die Cards denselben `storage_key` nutzen.
+- **„Nur lesen“ wird angezeigt / ich kann nichts ändern:** Gemeinsame Notizen können nur Administratoren ändern. Stelle den Speicherort auf „Pro Benutzer“, wenn jeder eigene Notizen haben soll.
+- **„Diese Home-Assistant-Version kennt den gemeinsamen Speicher noch nicht“:** Aktualisiere Home Assistant oder stelle den Speicherort auf „Pro Benutzer“.
 - **„Die Notizen konnten nicht gespeichert werden“:** Die Verbindung zu Home Assistant war unterbrochen. Die nächste Änderung versucht es erneut.
 - **Erinnerung löst nicht aus:** Das Dashboard muss in einem Browser geöffnet sein (siehe oben).
 

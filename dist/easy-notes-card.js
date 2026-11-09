@@ -1,11 +1,15 @@
 /*
  * Easy Notes – Notiz-Card für Home Assistant
- * Version 1.0.6
+ * Version 1.0.7
  *
  * Schnelle Notizen mit Markdown, Farben, Kategorien, Erinnerungen, Verschieben per Drag & Drop,
  * Editor mit Formatierungsleiste, Netzansicht (Kategorien und Notizen als verbundenes Netz)
  * und Markdown-Export/-Import.
- * Reine Dashboard-Card: Die Notizen liegen im HA-User-Storage
+ * Reine Dashboard-Card. Speicherort "shared" (Standard): frontend/get_system_data /
+ * set_system_data (.storage/frontend.system_data). Alle Benutzer sehen dieselben Notizen,
+ * ändern dürfen nur Administratoren. Benötigt eine Home-Assistant-Version mit diesen Befehlen.
+ *
+ * Speicherort "user": Die Notizen liegen im HA-User-Storage
  * (WebSocket "frontend/get_user_data" / "frontend/set_user_data"),
  * pro Benutzerkonto auf dem Server und damit geräteübergreifend.
  *
@@ -15,6 +19,7 @@
  * YAML (alles außer type ist optional):
  *   type: custom:easy-notes-card
  *   title: Easy Notes
+ *   storage: shared                # shared = gemeinsam für alle Benutzer (Standard), user = pro Benutzer
  *   storage_key: easy_notes_data   # gleicher Schlüssel = gleiche Notizen
  *   default_view: notes            # notes | graph
  *   show_search: true
@@ -34,7 +39,7 @@
  * Öffnen werden verpasste Erinnerungen sofort angezeigt.
  */
 
-const EASY_NOTES_VERSION = "1.0.6";
+const EASY_NOTES_VERSION = "1.0.7";
 
 // MDI-Pfade (@mdi/js)
 const mdiPlus = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
@@ -113,6 +118,8 @@ const mdiMinus =
   "M19,13H5V11H19V13Z";
 
 const mdiChevronDown = "M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z";
+const mdiChevronLeft = "M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z";
+const mdiChevronRight = "M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z";
 const mdiChevronUp = "M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z";
 
 const mdiFolderUploadOutline =
@@ -128,7 +135,12 @@ const EASY_WIDE_MIN = 960;
 const mdiFolderZipOutline =
   "M20 6H12L10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6M20 18H16V16H14V18H4V8H14V10H16V8H20V18M16 12V10H18V12H16M14 12H16V14H14V12M18 16H16V14H18V16Z";
 
+const mdiLockOutline =
+  "M12,17C10.89,17 10,16.1 10,15C10,13.89 10.89,13 12,13A2,2 0 0,1 14,15A2,2 0 0,1 12,17M18,20V10H6V20H18M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V10C4,8.89 4.89,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z";
+const EASY_STORAGES = ["shared", "user"];
+
 const EASY_DEFAULTS = {
+  storage: "shared",
   storage_key: "easy_notes_data",
   default_view: "notes",
   show_search: true,
@@ -182,6 +194,15 @@ const EASY_I18N = {
     notifyTitle: "Easy Notes: Erinnerung",
     notifyError: "Die Benachrichtigung konnte nicht erstellt werden.",
     loadError: "Die Notizen konnten nicht geladen werden. Lade die Seite neu.",
+    readOnly: "Nur lesen",
+    readOnlyHint: "Gemeinsame Notizen können nur Administratoren ändern.",
+    sharedUnsupported:
+      "Diese Home-Assistant-Version kennt den gemeinsamen Speicher noch nicht. Aktualisiere Home Assistant oder wähle im Card-Editor „Pro Benutzer“.",
+    sharedNoAdmin: "Speichern im gemeinsamen Speicher ist nur für Administratoren erlaubt.",
+    migrateText: "Der gemeinsame Speicher ist noch leer. Du hast {n} in deinem persönlichen Speicher.",
+    migrateBtn: "In den gemeinsamen Speicher übernehmen",
+    migrateDismiss: "Leer starten",
+    migrated: "{n} übernommen. Deine persönlichen Notizen bleiben zusätzlich erhalten.",
     saveError: "Die Notizen konnten nicht gespeichert werden. Die nächste Änderung versucht es erneut.",
     // Kategorien
     cats: "Kategorien festlegen",
@@ -191,6 +212,8 @@ const EASY_I18N = {
     catAll: "Alle",
     catFilter: "Nach Kategorie filtern",
     catShow: "Notizen in „{c}“ anzeigen",
+    catPrev: "Kategorien nach links scrollen",
+    catNext: "Kategorien nach rechts scrollen",
     // Ansichten
     viewGroup: "Ansicht",
     viewNotes: "Notizansicht",
@@ -297,6 +320,15 @@ const EASY_I18N = {
     notifyTitle: "Easy Notes: reminder",
     notifyError: "The notification could not be created.",
     loadError: "The notes could not be loaded. Reload the page.",
+    readOnly: "Read only",
+    readOnlyHint: "Only administrators can change shared notes.",
+    sharedUnsupported:
+      "This Home Assistant version does not support shared storage yet. Update Home Assistant or choose “Per user” in the card editor.",
+    sharedNoAdmin: "Only administrators can save to the shared storage.",
+    migrateText: "The shared storage is still empty. You have {n} in your personal storage.",
+    migrateBtn: "Copy to shared storage",
+    migrateDismiss: "Start empty",
+    migrated: "Copied {n}. Your personal notes are kept as well.",
     saveError: "The notes could not be saved. The next change will try again.",
     cats: "Set categories",
     catAdd: "Type a category",
@@ -305,6 +337,8 @@ const EASY_I18N = {
     catAll: "All",
     catFilter: "Filter by category",
     catShow: "Show notes in “{c}”",
+    catPrev: "Scroll categories left",
+    catNext: "Scroll categories right",
     viewGroup: "View",
     viewNotes: "Notes view",
     viewGraph: "Graph view",
@@ -1014,6 +1048,11 @@ function easySvg(tag, cls) {
 const EASY_EDITOR_I18N = {
   de: {
     title: "Titel",
+    storage: "Speicherort",
+    storage_user: "Pro Benutzer",
+    storage_shared: "Gemeinsam für alle Benutzer",
+    helper_storage:
+      "Gemeinsam: Alle Benutzer sehen dieselben Notizen auf allen Geräten (gespeichert in .storage/frontend.system_data, im Backup enthalten). Ändern können nur Administratoren, alle anderen nur lesen. Benötigt eine aktuelle Home-Assistant-Version. Pro Benutzer: Jedes HA-Konto hat eigene Notizen, auf allen Geräten.",
     storage_key: "Speicher-Schlüssel (gleicher Schlüssel = gleiche Notizen)",
     default_view: "Startansicht",
     show_search: "Suchfeld anzeigen",
@@ -1039,6 +1078,11 @@ const EASY_EDITOR_I18N = {
   },
   en: {
     title: "Title",
+    storage: "Storage location",
+    storage_user: "Per user",
+    storage_shared: "Shared for all users",
+    helper_storage:
+      "Shared: all users see the same notes on all devices (stored in .storage/frontend.system_data, included in backups). Only administrators can change them, everyone else can read. Requires a recent Home Assistant version. Per user: every HA account has its own notes, on all devices.",
     storage_key: "Storage key (same key = same notes)",
     default_view: "Start view",
     show_search: "Show search field",
@@ -1098,6 +1142,15 @@ class EasyNotesCardEditor extends HTMLElement {
     }
     return [
       { name: "title", selector: { text: {} } },
+      {
+        name: "storage",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: EASY_STORAGES.map((v) => ({ value: v, label: t[`storage_${v}`] })),
+          },
+        },
+      },
       { name: "storage_key", selector: { text: {} } },
       {
         name: "default_view",
@@ -1925,6 +1978,7 @@ class EasyNotesCard extends HTMLElement {
     this._config = { ...EASY_DEFAULTS };
     this._configured = false;
     this._storageKey = EASY_DEFAULTS.storage_key;
+    this._storageMode = EASY_DEFAULTS.storage;
     this._notes = [];
     this._query = "";
     this._catFilter = null;
@@ -1962,6 +2016,7 @@ class EasyNotesCard extends HTMLElement {
     // Spaltenzahl folgt der Breite der Card
     if (typeof ResizeObserver !== "undefined") {
       this._ro = new ResizeObserver(() => {
+        this._updateCatScroll();
         if (this._checkWide()) return; // hat neu gezeichnet
         if (this._view === "notes") {
           this._layout();
@@ -2033,7 +2088,12 @@ class EasyNotesCard extends HTMLElement {
       throw new Error("snooze_minutes muss eine Zahl >= 1 sein");
     }
 
+    if (config.storage !== undefined && !EASY_STORAGES.includes(config.storage)) {
+      throw new Error(`storage muss ${EASY_STORAGES.join(" oder ")} sein`);
+    }
+
     const oldKey = this._storageKey;
+    const oldMode = this._storageMode || EASY_DEFAULTS.storage;
     const oldDefault = this._config.default_view;
     const first = !this._configured;
     this._config = { ...EASY_DEFAULTS, ...config };
@@ -2049,9 +2109,12 @@ class EasyNotesCard extends HTMLElement {
 
     this._applyConfig();
 
-    if (newKey !== oldKey) {
-      const flushing = this._flush(); // speichert noch unter dem alten Schlüssel
+    const newMode = this._config.storage;
+    if (newKey !== oldKey || newMode !== oldMode) {
+      const flushing = this._flush(); // speichert noch am alten Ort
       this._storageKey = newKey;
+      this._storageMode = newMode;
+      this._hideMigrate();
       this._loaded = false;
       this._notes = [];
       this._catFilter = null;
@@ -2075,6 +2138,7 @@ class EasyNotesCard extends HTMLElement {
 
     if (first) {
       this._applyConfig();
+      this._applyReadOnly();
       this._load();
     } else if (langChanged) {
       this._applyConfig();
@@ -2283,6 +2347,33 @@ class EasyNotesCard extends HTMLElement {
           gap: var(--ha-space-2, 8px);
           margin-inline-start: auto;
         }
+        .ro {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          flex-shrink: 0;
+          padding: 3px 9px 3px 7px;
+          border-radius: 999px;
+          background: var(--secondary-background-color);
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          font-weight: 500;
+        }
+        .ro[hidden] { display: none; }
+        .ro ha-svg-icon { --mdc-icon-size: 14px; }
+        .migrate {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px 10px 14px;
+          border-radius: 12px;
+          border-inline-start: 4px solid var(--info-color, var(--primary-color));
+          background: color-mix(in srgb, var(--info-color, var(--primary-color)) 14%, transparent);
+          font-size: 14px;
+        }
+        .migrate[hidden] { display: none; }
+        .migrate-text { flex: 1 1 220px; }
         .title {
           flex: 1 1 120px;
           min-width: 0;
@@ -2421,11 +2512,47 @@ class EasyNotesCard extends HTMLElement {
         }
         .catbar::-webkit-scrollbar { display: none; }
         .catbar[hidden] { display: none; }
-        .catbar.overflow {
-          -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
-          mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+        /* Kategorie-Leiste: seitlich scrollbar per Pfeil, Mausrad, Ziehen oder Wischen */
+        .catwrap { position: relative; }
+        .catwrap[hidden] { display: none; }
+        .catwrap.can-scroll .catbar { cursor: grab; }
+        .catbar.dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+        .catbar.dragging .fchip { pointer-events: none; }
+        .catwrap.can-next .catbar {
+          -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent calc(100% - 12px));
+          mask-image: linear-gradient(to right, #000 calc(100% - 64px), transparent calc(100% - 12px));
         }
-        .catbar.overflow.end { -webkit-mask-image: none; mask-image: none; }
+        .catwrap.can-prev .catbar {
+          -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 64px), transparent calc(100% - 12px));
+          mask-image: linear-gradient(to left, #000 calc(100% - 64px), transparent calc(100% - 12px));
+        }
+        .catwrap.can-prev.can-next .catbar {
+          -webkit-mask-image: linear-gradient(to right, transparent 12px, #000 64px, #000 calc(100% - 64px), transparent calc(100% - 12px));
+          mask-image: linear-gradient(to right, transparent 12px, #000 64px, #000 calc(100% - 64px), transparent calc(100% - 12px));
+        }
+        .cb-arrow {
+          position: absolute;
+          top: 50%;
+          z-index: 1;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          padding: 0;
+          border: 1px solid var(--divider-color);
+          border-radius: 50%;
+          background: var(--card-background-color);
+          color: var(--primary-text-color);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+          transform: translateY(-50%);
+          cursor: pointer;
+        }
+        .cb-arrow:hover { background: var(--secondary-background-color); }
+        .cb-arrow ha-svg-icon { --mdc-icon-size: 20px; }
+        .cb-arrow.prev { left: 0; }
+        .cb-arrow.next { right: 0; }
+        .catwrap.can-prev .cb-arrow.prev, .catwrap.can-next .cb-arrow.next { display: inline-flex; }
         .fchip {
           flex-shrink: 0;
           display: inline-flex;
@@ -3149,6 +3276,7 @@ class EasyNotesCard extends HTMLElement {
         <div class="content">
           <div class="header">
             <h2 class="title" id="title"></h2>
+            <span class="ro" id="ro" hidden><ha-svg-icon id="ro-icon"></ha-svg-icon><span id="ro-text"></span></span>
             <div class="controls">
             <div class="seg" id="seg-layout" role="group" hidden>
               <button type="button" class="seg-btn" data-layout="tiles"><ha-svg-icon id="seg-tiles"></ha-svg-icon></button>
@@ -3180,11 +3308,16 @@ class EasyNotesCard extends HTMLElement {
           </div>
           <ha-alert alert-type="error" id="alert" style="display:none"></ha-alert>
           <ha-alert alert-type="success" id="msg" style="display:none"></ha-alert>
+          <div class="migrate" id="migrate" hidden></div>
           <div class="search-box" id="search-box">
             <ha-svg-icon class="search-icon" id="search-icon"></ha-svg-icon>
             <input type="search" class="search-input" id="search" />
           </div>
-          <div class="catbar" id="catbar" role="group"></div>
+          <div class="catwrap" id="catwrap">
+            <button type="button" class="cb-arrow prev" id="cb-prev" tabindex="-1"><ha-svg-icon id="cb-prev-icon"></ha-svg-icon></button>
+            <div class="catbar" id="catbar" role="group"></div>
+            <button type="button" class="cb-arrow next" id="cb-next" tabindex="-1"><ha-svg-icon id="cb-next-icon"></ha-svg-icon></button>
+          </div>
           <div class="notes-list" id="list"></div>
           <div class="more" id="more" hidden></div>
           <div class="graph-host" id="graph-host"></div>
@@ -3196,10 +3329,17 @@ class EasyNotesCard extends HTMLElement {
     this._elAddLabel = $("add-label");
     this._elAlert = $("alert");
     this._elMsg = $("msg");
+    this._elRo = $("ro");
+    this._elMigrate = $("migrate");
+    $("ro-icon").path = mdiLockOutline;
     this._elSearchBox = $("search-box");
     this._elSearch = $("search");
     this._elList = $("list");
     this._elCatbar = $("catbar");
+    this._elCatwrap = $("catwrap");
+    $("cb-prev-icon").path = mdiChevronLeft;
+    $("cb-next-icon").path = mdiChevronRight;
+    this._bindCatbarScroll($("cb-prev"), $("cb-next"));
     this._elMore = $("more");
     this._elGraphHost = $("graph-host");
     this._elBadge = $("badge");
@@ -3285,6 +3425,24 @@ class EasyNotesCard extends HTMLElement {
     }
   }
 
+  // Gemeinsamer Speicher + kein Admin = nur lesen
+  _readOnly() {
+    const u = this._hass && this._hass.user;
+    return this._storageMode === "shared" && !!u && u.is_admin === false;
+  }
+
+  _applyReadOnly() {
+    const ro = this._readOnly();
+    this._elRo.hidden = !ro;
+    this._elRo.title = this._t("readOnlyHint");
+    this.shadowRoot.getElementById("ro-text").textContent = this._t("readOnly");
+    this.shadowRoot.getElementById("add-btn").style.display = ro ? "none" : "";
+    for (const act of ["import", "import-dir"]) {
+      const item = this._elMenu.querySelector(`.menu-item[data-act="${act}"]`);
+      if (item) item.style.display = ro ? "none" : "";
+    }
+  }
+
   _applyConfig() {
     const c = this._config;
     this._elTitle.textContent = c.title !== undefined ? c.title : this._t("title");
@@ -3295,6 +3453,11 @@ class EasyNotesCard extends HTMLElement {
     this._elSearchBox.style.display = c.show_search === false ? "none" : "";
     this._elSeg.setAttribute("aria-label", this._t("viewGroup"));
     this._elCatbar.setAttribute("aria-label", this._t("catFilter"));
+    for (const [id, key] of [["cb-prev", "catPrev"], ["cb-next", "catNext"]]) {
+      const b = this.shadowRoot.getElementById(id);
+      b.title = this._t(key);
+      b.setAttribute("aria-label", this._t(key));
+    }
     for (const b of this._elSeg.querySelectorAll(".seg-btn")) {
       const label = this._t(b.dataset.view === "graph" ? "viewGraph" : "viewNotes");
       b.title = label;
@@ -3415,6 +3578,7 @@ class EasyNotesCard extends HTMLElement {
 
   _render() {
     const graph = this._view === "graph";
+    this._applyReadOnly();
     for (const b of this._elSeg.querySelectorAll(".seg-btn")) {
       b.setAttribute("aria-pressed", String(b.dataset.view === this._view));
     }
@@ -3424,6 +3588,7 @@ class EasyNotesCard extends HTMLElement {
     }
     this._elList.style.display = graph ? "none" : "";
     this._elCatbar.style.display = graph ? "none" : "";
+    this._elCatwrap.style.display = graph ? "none" : "";
     if (graph) this._elMore.hidden = true;
     this._elGraphHost.classList.toggle("show", graph);
     if (graph) {
@@ -3441,6 +3606,7 @@ class EasyNotesCard extends HTMLElement {
 
   _renderCatbar() {
     const bar = this._elCatbar;
+    const keepScroll = bar.scrollLeft;
     bar.replaceChildren();
     const cats = this._allCategories();
     if (this._catFilter && !cats.some((c) => c.name.toLowerCase() === this._catFilter.toLowerCase())) {
@@ -3449,7 +3615,11 @@ class EasyNotesCard extends HTMLElement {
     // Ausgeblendet: nur sichtbar, solange ein Filter aktiv ist (zum Zurücksetzen über "Alle")
     const show = this._config.show_categories !== false || !!this._catFilter;
     bar.hidden = !show;
-    if (!this._loaded || !cats.length || !show) return;
+    this._elCatwrap.hidden = !show || !this._loaded || !cats.length;
+    if (!this._loaded || !cats.length || !show) {
+      this._updateCatScroll();
+      return;
+    }
     const mk = (label, count, value) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -3470,15 +3640,99 @@ class EasyNotesCard extends HTMLElement {
     };
     mk(this._t("catAll"), this._notes.length, null);
     for (const c of cats) mk(c.name, c.count, c.name);
-    const fade = () => {
-      bar.classList.toggle("overflow", bar.scrollWidth > bar.clientWidth + 1);
-      bar.classList.toggle("end", bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 2);
+    // Position halten und den aktiven Filter sichtbar machen
+    bar.scrollLeft = keepScroll;
+    const active = bar.querySelector(".fchip.active");
+    if (active && this._catFilter && active.scrollIntoView) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+    this._updateCatScroll();
+    requestAnimationFrame(() => this._updateCatScroll());
+  }
+
+  _updateCatScroll() {
+    const bar = this._elCatbar;
+    const wrap = this._elCatwrap;
+    if (!wrap) return;
+    const max = bar.scrollWidth - bar.clientWidth;
+    const can = max > 1;
+    wrap.classList.toggle("can-scroll", can);
+    wrap.classList.toggle("can-prev", can && bar.scrollLeft > 2);
+    wrap.classList.toggle("can-next", can && bar.scrollLeft < max - 2);
+  }
+
+  _scrollCatbar(dir) {
+    const bar = this._elCatbar;
+    const step = Math.max(120, bar.clientWidth * 0.7) * dir;
+    if (typeof bar.scrollBy === "function") bar.scrollBy({ left: step, behavior: "smooth" });
+    else bar.scrollLeft += step;
+    this._updateCatScroll();
+  }
+
+  _bindCatbarScroll(prev, next) {
+    const bar = this._elCatbar;
+    prev.addEventListener("click", () => this._scrollCatbar(-1));
+    next.addEventListener("click", () => this._scrollCatbar(1));
+    bar.addEventListener("scroll", () => this._updateCatScroll(), { passive: true });
+
+    // Mausrad scrollt die Leiste seitlich (nur solange es in dieser Richtung weitergeht)
+    bar.addEventListener(
+      "wheel",
+      (e) => {
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return; // Trackpad wischt schon seitlich
+        const max = bar.scrollWidth - bar.clientWidth;
+        if (max <= 1) return;
+        const d = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+        if ((d < 0 && bar.scrollLeft <= 0) || (d > 0 && bar.scrollLeft >= max - 1)) return;
+        e.preventDefault();
+        bar.scrollLeft = Math.max(0, Math.min(max, bar.scrollLeft + d));
+        this._updateCatScroll();
+      },
+      { passive: false }
+    );
+
+    // Mit der Maus ziehen (Touch scrollt ohnehin nativ)
+    let drag = null;
+    let suppressClick = false;
+    const onMove = (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) > 5) {
+        drag.moved = true;
+        bar.classList.add("dragging");
+      }
+      if (drag.moved) {
+        bar.scrollLeft = drag.left - dx;
+        this._updateCatScroll();
+      }
     };
-    if (!bar._fadeBound) {
-      bar.addEventListener("scroll", fade, { passive: true });
-      bar._fadeBound = true;
-    }
-    requestAnimationFrame(fade);
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (!drag) return;
+      suppressClick = drag.moved;
+      drag = null;
+      bar.classList.remove("dragging");
+      // Ein Ziehen soll keinen Filter auswählen
+      if (suppressClick) setTimeout(() => (suppressClick = false), 0);
+    };
+    bar.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      if (bar.scrollWidth - bar.clientWidth <= 1) return;
+      drag = { x: e.clientX, left: bar.scrollLeft, moved: false };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    });
+    bar.addEventListener(
+      "click",
+      (e) => {
+        if (!suppressClick) return;
+        e.stopPropagation();
+        e.preventDefault();
+        suppressClick = false;
+      },
+      true
+    );
   }
 
   _renderNotes() {
@@ -3500,11 +3754,13 @@ class EasyNotesCard extends HTMLElement {
     let items = this._notes.filter((n) => this._matches(n));
     // Begrenzung gilt für die normale Ansicht. Suche und Kategorie-Filter zeigen alle Treffer.
     const max = this._config.max_notes;
-    if (max > 0 && !this._isFiltering() && !this._expanded && items.length > max) {
+    // Die Listenansicht zeigt immer alles: die Zeilen links scrollen ohnehin
+    const limited = max > 0 && !this._isFiltering() && !this._isListMode();
+    if (limited && !this._expanded && items.length > max) {
       const hidden = items.length - max;
       items = items.slice(0, max);
       this._updateMore(hidden);
-    } else if (max > 0 && !this._isFiltering() && this._expanded && items.length > max) {
+    } else if (limited && this._expanded && items.length > max) {
       this._updateMore(-1);
     }
     if (!items.length) {
@@ -3766,9 +4022,14 @@ class EasyNotesCard extends HTMLElement {
     const palBtn = this._btn({ icon: mdiPalette, title: this._t("color"), cls: "act" });
     const delBtn = this._btn({ icon: mdiDelete, title: this._t("del"), cls: "act del-btn" });
     delBtn.querySelector("ha-svg-icon").classList.add("del-icon");
-    top.append(handle, spacer, tagBtn);
-    if (bellBtn) top.append(bellBtn);
-    top.append(palBtn, delBtn);
+    const readOnly = this._readOnly();
+    if (readOnly) {
+      top.style.display = "none";
+    } else {
+      top.append(handle, spacer, tagBtn);
+      if (bellBtn) top.append(bellBtn);
+      top.append(palBtn, delBtn);
+    }
 
     // --- Fälligkeits-Hinweis ---
     const dueBar = document.createElement("div");
@@ -3783,7 +4044,8 @@ class EasyNotesCard extends HTMLElement {
       label: this._t("snooze").replace("{n}", snoozeMin),
     });
     const doneBtn = this._btn({ icon: mdiCheck, label: this._t("done"), variant: "success" });
-    dueBar.append(dueText, snoozeBtn, doneBtn);
+    dueBar.append(dueText);
+    if (!readOnly) dueBar.append(snoozeBtn, doneBtn);
 
     // --- Text: Markdown-Ansicht, Tippen schaltet in die Bearbeitung ---
     const body = document.createElement("div");
@@ -3791,7 +4053,7 @@ class EasyNotesCard extends HTMLElement {
     const view = document.createElement("div");
     view.className = "md note-md";
     view.tabIndex = 0;
-    view.title = this._t("editInline");
+    view.title = this._readOnly() ? this._t("readOnlyHint") : this._t("editInline");
     let ta = null;
 
     // --- Panel (Farbe / Erinnerung / Kategorien) ---
@@ -3813,7 +4075,8 @@ class EasyNotesCard extends HTMLElement {
     const chipText = document.createElement("span");
     chip.append(this._icon(mdiBell), chipText);
     const editorBtn = this._btn({ icon: mdiTextBoxEditOutline, title: this._t("openEditor"), cls: "act editor-btn" });
-    foot.append(edited, footSpacer, chip, editorBtn);
+    foot.append(edited, footSpacer, chip);
+    if (!readOnly) foot.append(editorBtn);
 
     el.append(top, panel, dueBar, body, cats, foot);
 
@@ -3824,7 +4087,7 @@ class EasyNotesCard extends HTMLElement {
       view.replaceChildren();
       if (note.text.trim()) {
         view.classList.remove("md-placeholder");
-        view.appendChild(easyMdRender(note.text, { onToggle: (line) => toggleTask(line) }));
+        view.appendChild(easyMdRender(note.text, readOnly ? {} : { onToggle: (line) => toggleTask(line) }));
       } else {
         view.classList.add("md-placeholder");
         view.textContent = this._t("placeholder");
@@ -3858,6 +4121,7 @@ class EasyNotesCard extends HTMLElement {
     };
 
     const enterEdit = () => {
+      if (readOnly) return;
       if (ta) {
         ta.focus();
         return;
@@ -4264,7 +4528,7 @@ class EasyNotesCard extends HTMLElement {
 
   // ---------- Aktionen ----------
   _addNote() {
-    if (!this._loaded) return; // nicht über ungeladene Daten schreiben
+    if (!this._loaded || this._readOnly()) return; // nicht über ungeladene Daten schreiben
     const key =
       this._config.note_color === "random"
         ? EASY_COLOR_KEYS[Math.floor(Math.random() * EASY_COLOR_KEYS.length)]
@@ -4851,6 +5115,10 @@ class EasyNotesCard extends HTMLElement {
       this._setError(this._t("loadError"));
       return null;
     }
+    if (this._readOnly()) {
+      this._setError(this._t("sharedNoAdmin"));
+      return null;
+    }
     const pathOf = (f) => f.webkitRelativePath || f.name || "";
     // ZIP-Dateien direkt auspacken
     const expanded = [];
@@ -4953,6 +5221,10 @@ class EasyNotesCard extends HTMLElement {
   }
 
   _importText(text) {
+    if (this._readOnly()) {
+      this._setError(this._t("sharedNoAdmin"));
+      return null;
+    }
     const parsed = this._parseMarkdown(text);
     if (!parsed.notes.length) {
       this._setError(this._t("importEmpty"));
@@ -5140,10 +5412,12 @@ class EasyNotesCard extends HTMLElement {
 
     this._loading = true;
     const key = this._storageKey;
+    const mode = this._storageMode || EASY_DEFAULTS.storage;
     let stale = false;
     try {
-      const res = await this._hass.callWS({ type: "frontend/get_user_data", key });
-      if (key !== this._storageKey) {
+      const type = mode === "shared" ? "frontend/get_system_data" : "frontend/get_user_data";
+      const res = await this._hass.callWS({ type, key });
+      if (key !== this._storageKey || mode !== (this._storageMode || EASY_DEFAULTS.storage)) {
         stale = true;
       } else if (silent && (this._dirty || this._saveTimer || this._dragging || this.shadowRoot.activeElement)) {
         // Während des Abrufs wurde bearbeitet: Ergebnis verwerfen
@@ -5157,10 +5431,11 @@ class EasyNotesCard extends HTMLElement {
           this._notes = notes;
           this._render();
         }
+        if (mode === "shared" && !notes.length && !silent) this._offerMigrate(key);
       }
     } catch (e) {
       console.warn("Easy Notes: Laden fehlgeschlagen", e);
-      if (!silent) this._setError(this._t("loadError"));
+      if (!silent) this._setError(this._isUnknownCommand(e) ? this._t("sharedUnsupported") : this._t("loadError"));
     } finally {
       this._loading = false;
     }
@@ -5168,7 +5443,7 @@ class EasyNotesCard extends HTMLElement {
   }
 
   _scheduleSave() {
-    if (!this._loaded) return;
+    if (!this._loaded || this._readOnly()) return;
     this._dirty = true;
     clearTimeout(this._saveTimer);
     this._saveTimer = setTimeout(() => this._flush(), 600);
@@ -5182,17 +5457,70 @@ class EasyNotesCard extends HTMLElement {
 
     const key = this._storageKey;
     const hass = this._hass;
+    const type = this._storageMode === "shared" ? "frontend/set_system_data" : "frontend/set_user_data";
     const value = { notes: this._notes.map((n) => ({ ...n })) };
     // Speichervorgänge nacheinander ausführen, damit sie nicht überholen
     this._saveChain = this._saveChain
-      .then(() => hass.callWS({ type: "frontend/set_user_data", key, value }))
+      .then(() => hass.callWS({ type, key, value }))
       .then(() => this._setError(null))
       .catch((e) => {
         console.error("Easy Notes: Speichern fehlgeschlagen", e);
         this._dirty = true; // nächste Änderung versucht es erneut
-        this._setError(this._t("saveError"));
+        let msg = this._t("saveError");
+        if (this._isUnknownCommand(e)) msg = this._t("sharedUnsupported");
+        else if (e && e.code === "unauthorized") msg = this._t("sharedNoAdmin");
+        this._setError(msg);
       });
     return this._saveChain;
+  }
+
+  _isUnknownCommand(e) {
+    return !!e && (e.code === "unknown_command" || /unknown command/i.test(String(e.message || "")));
+  }
+
+  // Gemeinsamer Speicher leer: eigene Notizen (gleicher Schlüssel) zur Übernahme anbieten
+  async _offerMigrate(key) {
+    if (this._readOnly() || !this._hass) return;
+    this._migrateDone = this._migrateDone || new Set();
+    if (this._migrateDone.has(key)) return;
+    let mine = [];
+    try {
+      const res = await this._hass.callWS({ type: "frontend/get_user_data", key });
+      const v = res && res.value;
+      mine = v && Array.isArray(v.notes) ? v.notes.map((n) => this._normalize(n)) : [];
+    } catch (_) {
+      return;
+    }
+    if (!mine.length || this._storageMode !== "shared" || this._storageKey !== key || this._notes.length) return;
+    const box = this._elMigrate;
+    box.replaceChildren();
+    const text = document.createElement("span");
+    text.className = "migrate-text";
+    text.textContent = this._t("migrateText").replace("{n}", this._count(mine.length, "nNotes"));
+    const skip = this._btn({ label: this._t("migrateDismiss"), size: "s" });
+    skip.addEventListener("click", () => {
+      this._migrateDone.add(key);
+      this._hideMigrate();
+    });
+    const go = this._btn({ label: this._t("migrateBtn"), appearance: "filled", variant: "brand", size: "s" });
+    go.addEventListener("click", () => {
+      this._migrateDone.add(key);
+      this._hideMigrate();
+      if (this._notes.length) return; // inzwischen befüllt: nichts überschreiben
+      this._notes = mine;
+      this._render();
+      this._scheduleSave();
+      this._flush();
+      this._setMessage(this._t("migrated").replace("{n}", this._count(mine.length, "nNotes")));
+    });
+    box.append(text, skip, go);
+    box.hidden = false;
+  }
+
+  _hideMigrate() {
+    if (!this._elMigrate) return;
+    this._elMigrate.hidden = true;
+    this._elMigrate.replaceChildren();
   }
 }
 
