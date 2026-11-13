@@ -30,6 +30,14 @@ If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 - **Drag & drop**: move notes into any order — with the mouse, with touch or with the arrow keys.
 - **Tile and list layout**: on wide cards you can switch between a tile view and a list view.
 
+**Board view**
+- **One row per category**: notes are shown as compact cards in a row per category — like a task board (e.g. *In progress*, *Priority A*, *Priority B*).
+- **Drag & drop between categories**: drag a card left/right to change the order, or into another row to change its category. Works with mouse, touch (handle) and keyboard.
+- **Define categories in advance**: create categories even before they have notes, and sort the rows up and down.
+- **Pick or autocomplete categories**: on a note or in the Markdown editor popup, choose an existing category from a dropdown or let the input complete the name while you type — no more duplicates.
+
+<img width="49%" height="auto" alt="easy-notes-card-board" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-board.png" />
+
 **Graph view**
 - **Notes as a network**: categories and notes are drawn as a connected graph. Notes that share a category are linked — drag, zoom (mouse wheel, buttons or pinch on touch screens) and fit everything into view.
 - **Quick access**: a double-click opens a note or shows all notes of a category.
@@ -99,7 +107,7 @@ Everything else is optional.
 | Title | `title` | Heading of the card. |
 | Storage location | `storage` | `shared` (default): all users see the same notes. `user`: every account has its own notes — see [Where are my notes stored?](#where-are-my-notes-stored). |
 | Storage key | `storage_key` | Name under which the notes are stored. **Cards with the same key show the same notes**; a different key gives you a separate set of notes. |
-| Default view | `default_view` | Start with the notes view (`notes`) or the graph view (`graph`). |
+| Default view | `default_view` | Start with the notes view (`notes`), the board view (`board`) or the graph view (`graph`). |
 | Search | `show_search` | Show the search field. |
 | Categories | `show_categories` | Show the category bar above the notes. |
 | Number of visible notes | `max_notes` | `0` shows all notes; otherwise only this many are shown, the rest is behind a "Show more" button. |
@@ -115,7 +123,7 @@ type: custom:easy-notes-card
 title: Easy Notes
 storage: shared                # shared = for all users (default) | user = per user
 storage_key: easy_notes_data   # same key = same notes
-default_view: notes            # notes | graph
+default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
 max_notes: 0                   # 0 = all notes

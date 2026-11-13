@@ -2,6 +2,25 @@
 
 [🇬🇧 English version](changelog_eng.md)
 
+## v1.0.8
+
+### Hinzugefügt
+- **Board-Ansicht:** Neuer dritter Umschalter oben in der Card (zwischen Notiz- und Netzansicht), auch auf kleinen Bildschirmen. Jede Kategorie ist eine Zeile, darin stehen die Notizen als kompakte Karten. Ideal, um Ideen und Aufgaben z. B. nach „In Arbeit“, „Prio A“, „Prio B“ … zu ordnen.
+  - **Drag & Drop:** Innerhalb einer Zeile nach links/rechts ziehen ändert die Reihenfolge, in eine andere Zeile ziehen wechselt die Kategorie. Mit der Maus geht das an der ganzen Karte, auf Touch-Geräten am Griff. Tastatur: Griff fokussieren, Pfeil links/rechts = Reihenfolge, hoch/runter = Kategorie.
+  - Ziehen nach **„Ohne Kategorie“** entfernt die Kategorien der Notiz.
+  - **+** in einer Zeile legt direkt eine Notiz in dieser Kategorie an und öffnet den Editor. Bleibt sie leer, wird sie beim Schließen wieder entfernt.
+  - Zeilen lassen sich mit den Pfeilen **nach oben/unten** sortieren, leere Kategorien mit dem Papierkorb entfernen.
+  - Karte antippen öffnet den Editor. Karten zeigen Erinnerung, Checklisten-Fortschritt (z. B. 1/2) und weitere Kategorien.
+  - `default_view: board` startet die Card direkt im Board.
+- **Kategorien vorab festlegen:** Im Board über „Neue Kategorie anlegen“, auch ohne Notiz. Die Kategorien und ihre Reihenfolge werden zusammen mit den Notizen gespeichert.
+- **Kategorie-Auswahl an der Notiz:** Neben dem Eingabefeld gibt es ein Auswahlfeld mit allen vorhandenen Kategorien.
+- **Kategorien im Markdown-Editor:** Im Editor-Popup gibt es unten eine Kategorie-Leiste – Kategorien entfernen, eintippen (mit Autovervollständigung) oder aus der Liste wählen. Übernommen wird erst mit „Speichern“, „Abbrechen“ fragt bei geänderten Kategorien nach. Rücktaste im leeren Feld entfernt die letzte Kategorie.
+- **Autovervollständigung:** Beim Tippen einer Kategorie wird ein vorhandener Name ergänzt (Enter oder Tab übernimmt). Groß-/Kleinschreibung wird an die vorhandene Kategorie angepasst, so entstehen keine Doppelungen.
+- **Sichtbarkeit pro Notiz** (`note_visibility`, nur bei `storage: shared`): Administratoren legen an jeder Notiz fest, welche Benutzer sie sehen. Administratoren sehen immer alle Notizen.
+
+### Hinweise
+- Ältere Card-Versionen kennen die festgelegten Kategorien nicht. Speichert eine ältere Version, gehen leere, vorab angelegte Kategorien verloren – Notizen und ihre Kategorien bleiben erhalten.
+
 ## v1.0.7
 
 ### Hinzugefügt

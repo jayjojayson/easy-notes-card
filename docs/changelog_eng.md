@@ -2,6 +2,25 @@
 
 [🇩🇪 Deutsche Version](CHANGELOG.md)
 
+## v1.0.8
+
+### Added
+- **Board view:** new third switch at the top of the card (between notes and graph view), also on small screens. Every category is a row with its notes as compact cards — great for sorting ideas and tasks into e.g. "In progress", "Priority A", "Priority B" …
+  - **Drag & drop:** drag left/right within a row to change the order, drag into another row to change the category. With a mouse the whole card is draggable, on touch devices use the handle. Keyboard: focus the handle, left/right arrow = order, up/down = category.
+  - Dragging to **"No category"** removes the note's categories.
+  - **+** in a row creates a note in that category and opens the editor. If it stays empty, it is removed again when you close the editor.
+  - Rows can be sorted **up/down** with the arrows, empty categories can be removed with the trash icon.
+  - Tap a card to open the editor. Cards show the reminder, checklist progress (e.g. 1/2) and further categories.
+  - `default_view: board` starts the card in the board view.
+- **Define categories in advance:** in the board via "Create a new category", even without a note. Categories and their order are stored together with the notes.
+- **Category picker on the note:** next to the input field there is a dropdown with all existing categories.
+- **Categories in the Markdown editor:** the editor popup has a category bar at the bottom — remove categories, type new ones (with autocomplete) or pick them from the list. Changes apply with "Save", "Cancel" asks before discarding changed categories. Backspace in the empty field removes the last category.
+- **Autocomplete:** while typing a category, an existing name is completed (Enter or Tab accepts). Upper/lower case follows the existing category, so no duplicates are created.
+- **Visibility per note** (`note_visibility`, only with `storage: shared`): administrators choose on each note which users can see it. Administrators always see all notes.
+
+### Notes
+- Older card versions do not know the predefined categories. If an older version saves, empty predefined categories are lost — notes and their categories are kept.
+
 ## v1.0.7
 
 ### Added

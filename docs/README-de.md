@@ -28,6 +28,14 @@ Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 - **Drag & Drop**: Bringe Notizen in jede Reihenfolge – mit Maus, Touch oder Pfeiltasten.
 - **Kachel- und Listenansicht**: Bei breiten Cards kannst du zwischen Kacheln und Liste umschalten.
 
+**Board-Ansicht**
+- **Eine Zeile pro Kategorie**: Notizen erscheinen als kompakte Karten in einer Zeile je Kategorie – wie ein Aufgaben-Board (z. B. *In Arbeit*, *Prio A*, *Prio B*).
+- **Drag & Drop zwischen Kategorien**: Karte nach links/rechts ziehen ändert die Reihenfolge, in eine andere Zeile ziehen wechselt die Kategorie. Mit Maus, Touch (Griff) und Tastatur.
+- **Kategorien vorab festlegen**: Kategorien auch ohne Notiz anlegen und die Zeilen nach oben und unten sortieren.
+- **Kategorien auswählen oder ergänzen lassen**: An der Notiz oder im Markdown-Editor-Popup eine vorhandene Kategorie aus dem Auswahlfeld wählen oder beim Tippen automatisch ergänzen lassen – keine Doppelungen mehr.
+
+<img width="49%" height="auto" alt="easy-notes-card-board" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-board.png" />
+
 **Netzansicht**
 - **Notizen als Netz**: Kategorien und Notizen werden als verbundenes Netz dargestellt. Notizen mit gemeinsamer Kategorie sind verknüpft – verschieben, zoomen (Mausrad, Buttons oder Pinch auf Touchscreens) und alles einpassen.
 - **Schneller Zugriff**: Ein Doppelklick öffnet eine Notiz oder zeigt alle Notizen einer Kategorie.
@@ -97,7 +105,7 @@ Alles andere ist optional.
 | Titel | `title` | Überschrift der Card. |
 | Speicherort | `storage` | `shared` (Standard): Alle Benutzer sehen dieselben Notizen. `user`: Jedes Konto hat eigene Notizen – siehe [Wo liegen meine Notizen?](#wo-liegen-meine-notizen). |
 | Speicher-Schlüssel | `storage_key` | Name, unter dem die Notizen gespeichert werden. **Cards mit demselben Schlüssel zeigen dieselben Notizen**; ein anderer Schlüssel ergibt einen eigenen Notizsatz. |
-| Startansicht | `default_view` | Mit der Notizansicht (`notes`) oder der Netzansicht (`graph`) starten. |
+| Startansicht | `default_view` | Mit der Notizansicht (`notes`), der Board-Ansicht (`board`) oder der Netzansicht (`graph`) starten. |
 | Suche | `show_search` | Suchfeld anzeigen. |
 | Kategorien | `show_categories` | Kategorie-Leiste über den Notizen anzeigen. |
 | Anzahl sichtbarer Notizen | `max_notes` | `0` zeigt alle Notizen; sonst nur diese Anzahl, der Rest steckt hinter „Weitere anzeigen“. |
@@ -113,7 +121,7 @@ type: custom:easy-notes-card
 title: Easy Notes
 storage: shared                # shared = für alle Benutzer (Standard) | user = pro Benutzer
 storage_key: easy_notes_data   # gleicher Schlüssel = gleiche Notizen
-default_view: notes            # notes | graph
+default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
 max_notes: 0                   # 0 = alle Notizen

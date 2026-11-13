@@ -1,9 +1,10 @@
 /*
  * Easy Notes – Notiz-Card für Home Assistant
- * Version 1.0.7
+ * Version 1.0.8
  *
  * Schnelle Notizen mit Markdown, Farben, Kategorien, Erinnerungen, Verschieben per Drag & Drop,
- * Editor mit Formatierungsleiste, Netzansicht (Kategorien und Notizen als verbundenes Netz)
+ * Editor mit Formatierungsleiste, Board-Ansicht (eine Zeile pro Kategorie, Notizen per Drag & Drop
+ * zwischen Kategorien verschieben), Netzansicht (Kategorien und Notizen als verbundenes Netz)
  * und Markdown-Export/-Import.
  * Reine Dashboard-Card. Speicherort "shared" (Standard): frontend/get_system_data /
  * set_system_data (.storage/frontend.system_data). Alle Benutzer sehen dieselben Notizen,
@@ -21,7 +22,8 @@
  *   title: Easy Notes
  *   storage: shared                # shared = gemeinsam für alle Benutzer (Standard), user = pro Benutzer
  *   storage_key: easy_notes_data   # gleicher Schlüssel = gleiche Notizen
- *   default_view: notes            # notes | graph
+ *   note_visibility: false         # nur bei storage: shared – Admins legen pro Notiz fest, wer sie sieht
+ *   default_view: notes            # notes | board | graph
  *   show_search: true
  *   max_notes: 0                   # 0 = alle Notizen, sonst Anzahl sichtbarer Notizen
  *   show_categories: true          # Kategorie-Leiste über den Notizen
@@ -39,7 +41,7 @@
  * Öffnen werden verpasste Erinnerungen sofort angezeigt.
  */
 
-const EASY_NOTES_VERSION = "1.0.7";
+const EASY_NOTES_VERSION = "1.0.8";
 
 // MDI-Pfade (@mdi/js)
 const mdiPlus = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
@@ -127,6 +129,9 @@ const mdiFolderUploadOutline =
 
 const mdiViewGridOutline =
   "M3 11H11V3H3M5 5H9V9H5M13 21H21V13H13M15 15H19V19H15M3 21H11V13H3M5 15H9V19H5M13 3V11H21V3M19 9H15V5H19Z";
+// Board: Zeilen mit Karten
+const mdiViewBoard =
+  "M3 3H21V5H3V3M4 7H10V11H4V7M12 7H18V11H12V7M3 13H21V15H3V13M4 17H10V21H4V17M12 17H16V21H12V17Z";
 const mdiViewSplitVertical = "M13,5H21V19H13V5M3,5H11V7H3V5M3,11V9H11V11H3M3,19V17H11V19H3M3,15V13H11V15H3Z";
 
 // Ab dieser Card-Breite (px) gibt es den Umschalter Kacheln / Liste
@@ -135,6 +140,8 @@ const EASY_WIDE_MIN = 960;
 const mdiFolderZipOutline =
   "M20 6H12L10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6M20 18H16V16H14V18H4V8H14V10H16V8H20V18M16 12V10H18V12H16M14 12H16V14H14V12M18 16H16V14H18V16Z";
 
+const mdiAccountMultipleOutline =
+  "M13.07 10.41A5 5 0 0 0 13.07 4.59A3.39 3.39 0 0 1 15 4A3.5 3.5 0 0 1 15 11A3.39 3.39 0 0 1 13.07 10.41M5.5 7.5A3.5 3.5 0 1 1 9 11A3.5 3.5 0 0 1 5.5 7.5M7.5 7.5A1.5 1.5 0 1 0 9 6A1.5 1.5 0 0 0 7.5 7.5M16 17V19H2V17S2 13 9 13 16 17 16 17M14 17C13.86 16.22 12.67 15 9 15S4.07 16.31 4 17M15.95 13A5.32 5.32 0 0 1 18 17V19H22V17S22 13.37 15.94 13Z";
 const mdiLockOutline =
   "M12,17C10.89,17 10,16.1 10,15C10,13.89 10.89,13 12,13A2,2 0 0,1 14,15A2,2 0 0,1 12,17M18,20V10H6V20H18M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6C4.89,22 4,21.1 4,20V10C4,8.89 4.89,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z";
 const EASY_STORAGES = ["shared", "user"];
@@ -149,6 +156,7 @@ const EASY_DEFAULTS = {
   note_color: "random",
   reminders: true,
   sidebar_notification: false,
+  note_visibility: false,
   snooze_minutes: 10,
 };
 
@@ -164,7 +172,9 @@ const EASY_PALETTE = {
   grey: "var(--grey-color, #9ca3af)",
 };
 const EASY_COLOR_KEYS = Object.keys(EASY_PALETTE);
-const EASY_VIEWS = ["notes", "graph"];
+const EASY_VIEWS = ["notes", "board", "graph"];
+// Höchstzahl festgelegter Kategorien (Board-Zeilen); pro Notiz bleiben es maximal 12
+const EASY_MAX_CAT_LIST = 60;
 const EASY_MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 const EASY_MAX_ZIP_BYTES = 50 * 1024 * 1024;
 
@@ -203,6 +213,13 @@ const EASY_I18N = {
     migrateBtn: "In den gemeinsamen Speicher übernehmen",
     migrateDismiss: "Leer starten",
     migrated: "{n} übernommen. Deine persönlichen Notizen bleiben zusätzlich erhalten.",
+    visibility: "Sichtbar für",
+    visAll: "Alle Benutzer",
+    visOnlyAdmins: "Nur Administratoren",
+    visAdminsHint: "Administratoren sehen immer alle Notizen.",
+    visNoUsers: "Es gibt keine Benutzer ohne Admin-Rechte.",
+    visUsersError: "Die Benutzerliste konnte nicht geladen werden.",
+    visLoading: "Benutzer werden geladen …",
     saveError: "Die Notizen konnten nicht gespeichert werden. Die nächste Änderung versucht es erneut.",
     // Kategorien
     cats: "Kategorien festlegen",
@@ -214,6 +231,25 @@ const EASY_I18N = {
     catShow: "Notizen in „{c}“ anzeigen",
     catPrev: "Kategorien nach links scrollen",
     catNext: "Kategorien nach rechts scrollen",
+    catPick: "Vorhandene wählen …",
+    catPickLabel: "Vorhandene Kategorie wählen",
+    edCats: "Kategorien",
+    // Board
+    viewBoard: "Board-Ansicht",
+    boardNone: "Ohne Kategorie",
+    boardNewCat: "Neue Kategorie anlegen",
+    boardNewCatBtn: "Kategorie anlegen",
+    boardAddNote: "Neue Notiz in „{c}“",
+    boardAddNoteNone: "Neue Notiz ohne Kategorie",
+    boardUp: "Kategorie nach oben",
+    boardDown: "Kategorie nach unten",
+    boardDelete: "Leere Kategorie „{c}“ entfernen",
+    boardDrop: "Notizen hierher ziehen",
+    boardEmptyLane: "Keine Notizen",
+    boardDrag: "Verschieben (ziehen; Pfeiltasten links/rechts = Reihenfolge, hoch/runter = Kategorie)",
+    boardOpen: "Zum Bearbeiten öffnen",
+    boardHint: "Lege Kategorien an. Jede Kategorie wird eine Zeile, Notizen verschiebst du per Drag & Drop.",
+    boardExists: "Die Kategorie „{c}“ gibt es schon.",
     // Ansichten
     viewGroup: "Ansicht",
     viewNotes: "Notizansicht",
@@ -329,6 +365,13 @@ const EASY_I18N = {
     migrateBtn: "Copy to shared storage",
     migrateDismiss: "Start empty",
     migrated: "Copied {n}. Your personal notes are kept as well.",
+    visibility: "Visible to",
+    visAll: "All users",
+    visOnlyAdmins: "Administrators only",
+    visAdminsHint: "Administrators always see all notes.",
+    visNoUsers: "There are no users without admin rights.",
+    visUsersError: "The user list could not be loaded.",
+    visLoading: "Loading users …",
     saveError: "The notes could not be saved. The next change will try again.",
     cats: "Set categories",
     catAdd: "Type a category",
@@ -339,6 +382,24 @@ const EASY_I18N = {
     catShow: "Show notes in “{c}”",
     catPrev: "Scroll categories left",
     catNext: "Scroll categories right",
+    catPick: "Choose existing …",
+    catPickLabel: "Choose an existing category",
+    edCats: "Categories",
+    viewBoard: "Board view",
+    boardNone: "No category",
+    boardNewCat: "Create a new category",
+    boardNewCatBtn: "Create category",
+    boardAddNote: "New note in “{c}”",
+    boardAddNoteNone: "New note without category",
+    boardUp: "Move category up",
+    boardDown: "Move category down",
+    boardDelete: "Remove empty category “{c}”",
+    boardDrop: "Drag notes here",
+    boardEmptyLane: "No notes",
+    boardDrag: "Move (drag; left/right arrow keys = order, up/down = category)",
+    boardOpen: "Open to edit",
+    boardHint: "Create categories. Every category becomes a row, and you move notes by drag & drop.",
+    boardExists: "The category “{c}” already exists.",
     viewGroup: "View",
     viewNotes: "Notes view",
     viewGraph: "Graph view",
@@ -448,6 +509,21 @@ function easyCleanCats(list) {
   return out;
 }
 
+// Festgelegte Kategorien (Board-Zeilen): wie oben, aber Reihenfolge zählt und mehr erlaubt
+function easyCleanCatList(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(list) ? list : []) {
+    const c = String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+    const k = c.toLowerCase();
+    if (!c || seen.has(k)) continue;
+    seen.add(k);
+    out.push(c);
+    if (out.length >= EASY_MAX_CAT_LIST) break;
+  }
+  return out;
+}
+
 // Markdown-Zeichen für kurze Beschriftungen entfernen
 function easyPlain(line) {
   return String(line || "")
@@ -543,6 +619,7 @@ function easyNoteFromFile(src, path = "") {
     if (typeof meta.updated === "string" && meta.updated) note.updated = meta.updated;
     const pos = Number(meta.position);
     if (Number.isFinite(pos)) note._pos = pos;
+    if (Array.isArray(meta.visible_to)) note.visible_to = meta.visible_to;
     return note;
   }
   let text = body.replace(/^\s*\n/, "").replace(/\s+$/, "");
@@ -1054,6 +1131,9 @@ const EASY_EDITOR_I18N = {
     helper_storage:
       "Gemeinsam: Alle Benutzer sehen dieselben Notizen auf allen Geräten (gespeichert in .storage/frontend.system_data, im Backup enthalten). Ändern können nur Administratoren, alle anderen nur lesen. Benötigt eine aktuelle Home-Assistant-Version. Pro Benutzer: Jedes HA-Konto hat eigene Notizen, auf allen Geräten.",
     storage_key: "Speicher-Schlüssel (gleicher Schlüssel = gleiche Notizen)",
+    note_visibility: "Sichtbarkeit pro Notiz festlegen",
+    helper_note_visibility:
+      "Admins wählen an jeder Notiz, welche Benutzer sie sehen. Admins sehen immer alle Notizen. Hinweis: Notizen werden nur ausgeblendet. Technisch versierte Benutzer können den gemeinsamen Speicher trotzdem auslesen, für Privates „Pro Benutzer“ verwenden.",
     default_view: "Startansicht",
     show_search: "Suchfeld anzeigen",
     show_categories: "Kategorie-Leiste anzeigen",
@@ -1065,6 +1145,7 @@ const EASY_EDITOR_I18N = {
     snooze_minutes: "Später erinnern nach (Minuten)",
     random: "Zufällig",
     notes: "Notizen",
+    board: "Board",
     graph: "Netz",
     helper_sidebar_notification:
       "Die Benachrichtigung sehen alle HA-Benutzer. Sie wird nur erstellt, solange ein Dashboard mit dieser Card geöffnet ist.",
@@ -1084,6 +1165,9 @@ const EASY_EDITOR_I18N = {
     helper_storage:
       "Shared: all users see the same notes on all devices (stored in .storage/frontend.system_data, included in backups). Only administrators can change them, everyone else can read. Requires a recent Home Assistant version. Per user: every HA account has its own notes, on all devices.",
     storage_key: "Storage key (same key = same notes)",
+    note_visibility: "Set visibility per note",
+    helper_note_visibility:
+      "Admins choose on each note which users can see it. Admins always see all notes. Note: notes are only hidden. Tech-savvy users can still read the shared storage; use “Per user” for private notes.",
     default_view: "Start view",
     show_search: "Show search field",
     show_categories: "Show category bar",
@@ -1095,6 +1179,7 @@ const EASY_EDITOR_I18N = {
     snooze_minutes: "Snooze for (minutes)",
     random: "Random",
     notes: "Notes",
+    board: "Board",
     graph: "Graph",
     helper_sidebar_notification:
       "All HA users can see the notification. It is only created while a dashboard with this card is open.",
@@ -1152,6 +1237,8 @@ class EasyNotesCardEditor extends HTMLElement {
         },
       },
       { name: "storage_key", selector: { text: {} } },
+      // Nur beim gemeinsamen Speicher sinnvoll, daher nur dann angeboten
+      ...(data.storage === "shared" ? [{ name: "note_visibility", selector: { boolean: {} } }] : []),
       {
         name: "default_view",
         selector: {
@@ -1980,6 +2067,8 @@ class EasyNotesCard extends HTMLElement {
     this._storageKey = EASY_DEFAULTS.storage_key;
     this._storageMode = EASY_DEFAULTS.storage;
     this._notes = [];
+    this._catList = []; // festgelegte Kategorien in Board-Reihenfolge (werden mitgespeichert)
+    this._boardEls = null;
     this._query = "";
     this._catFilter = null;
     this._view = "notes";
@@ -2076,7 +2165,7 @@ class EasyNotesCard extends HTMLElement {
     ) {
       throw new Error(`note_color muss random oder eines von ${EASY_COLOR_KEYS.join(", ")} sein`);
     }
-    for (const k of ["show_search", "show_categories", "reminders", "sidebar_notification"]) {
+    for (const k of ["show_search", "show_categories", "reminders", "sidebar_notification", "note_visibility"]) {
       if (config[k] !== undefined && typeof config[k] !== "boolean") {
         throw new Error(`${k} muss true oder false sein`);
       }
@@ -2094,6 +2183,7 @@ class EasyNotesCard extends HTMLElement {
 
     const oldKey = this._storageKey;
     const oldMode = this._storageMode || EASY_DEFAULTS.storage;
+    const oldVis = this._config.note_visibility;
     const oldDefault = this._config.default_view;
     const first = !this._configured;
     this._config = { ...EASY_DEFAULTS, ...config };
@@ -2110,7 +2200,8 @@ class EasyNotesCard extends HTMLElement {
     this._applyConfig();
 
     const newMode = this._config.storage;
-    if (newKey !== oldKey || newMode !== oldMode) {
+    const visChanged = this._configured && oldVis !== this._config.note_visibility;
+    if (newKey !== oldKey || newMode !== oldMode || (visChanged && this._readOnly())) {
       const flushing = this._flush(); // speichert noch am alten Ort
       this._storageKey = newKey;
       this._storageMode = newMode;
@@ -2118,6 +2209,7 @@ class EasyNotesCard extends HTMLElement {
       this._loaded = false;
       this._notes = [];
       this._catFilter = null;
+      this._catList = [];
       this._render();
       if (this._hass) flushing.then(() => this._load());
     } else {
@@ -2140,6 +2232,7 @@ class EasyNotesCard extends HTMLElement {
       this._applyConfig();
       this._applyReadOnly();
       this._load();
+      this._ensureUsers();
     } else if (langChanged) {
       this._applyConfig();
       this._render();
@@ -2251,7 +2344,56 @@ class EasyNotesCard extends HTMLElement {
     };
     if (n && n.remind_at && !isNaN(new Date(n.remind_at).getTime())) out.remind_at = n.remind_at;
     if (n && n.notified && out.remind_at) out.notified = true;
+    // visible_to fehlt = alle Benutzer; Liste (auch leer) = nur diese Benutzer (+ Admins)
+    if (n && Array.isArray(n.visible_to)) out.visible_to = [...new Set(n.visible_to.map(String).filter(Boolean))];
     return out;
+  }
+
+  _visibilityOn() {
+    return this._config.note_visibility === true && this._storageMode === "shared";
+  }
+
+  // Nicht-Admins sehen nur Notizen, die für sie freigegeben sind
+  _filterVisible(notes) {
+    if (!this._visibilityOn() || !this._readOnly()) return notes;
+    const uid = this._hass && this._hass.user && this._hass.user.id;
+    return notes.filter((n) => !Array.isArray(n.visible_to) || (uid && n.visible_to.includes(uid)));
+  }
+
+  // Benutzerliste (nur für Admins abrufbar), ohne System-Benutzer und ohne Admins
+  _ensureUsers() {
+    if (!this._visibilityOn() || this._readOnly() || !this._hass || this._usersLoading || this._users) return;
+    const u = this._hass.user;
+    if (u && u.is_admin === false) return;
+    this._usersLoading = true;
+    Promise.resolve(this._hass.callWS({ type: "config/auth/list" }))
+      .then((list) => {
+        const all = (Array.isArray(list) ? list : []).filter((x) => x && !x.system_generated);
+        this._userNames = new Map(all.map((x) => [String(x.id), x.name || x.username || String(x.id)]));
+        this._users = all
+          .filter((x) => x.is_active !== false && !x.is_owner && !(x.group_ids || []).includes("system-admin"))
+          .map((x) => ({ id: String(x.id), name: x.name || x.username || String(x.id) }))
+          .sort((a, b) => a.name.localeCompare(b.name, this._locale()));
+        this._usersError = false;
+      })
+      .catch((e) => {
+        console.warn("Easy Notes: Benutzerliste nicht verfügbar", e);
+        this._users = [];
+        this._userNames = new Map();
+        this._usersError = true;
+      })
+      .finally(() => {
+        this._usersLoading = false;
+        if (this._loaded) this._render();
+      });
+  }
+
+  // Kurztext für den Hinweis an der Notiz (nur Admins sehen ihn)
+  _visLabel(note) {
+    if (!Array.isArray(note.visible_to)) return "";
+    if (!note.visible_to.length) return this._t("visOnlyAdmins");
+    const names = note.visible_to.map((id) => (this._userNames && this._userNames.get(id)) || "?");
+    return names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(", ");
   }
 
   // Alle Kategorien mit Anzahl, alphabetisch
@@ -2267,11 +2409,99 @@ class EasyNotesCard extends HTMLElement {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, this._locale()));
   }
 
-  _matches(n) {
-    const q = this._query.trim().toLowerCase();
-    if (q && !n.text.toLowerCase().includes(q) && !(n.categories || []).some((c) => c.toLowerCase().includes(q))) {
-      return false;
+  // Beim Tippen eine passende vorhandene Kategorie ergänzen (markierter Rest, Enter/Tab übernimmt).
+  // Die Schreibweise der vorhandenen Kategorie wird übernommen ("mom" -> "Momentan in Arbeit").
+  _catAutocomplete(input, getKnown) {
+    input.setAttribute("autocomplete", "off");
+    input.addEventListener("input", (e) => {
+      if (e.inputType && !e.inputType.startsWith("insert")) return; // beim Löschen nicht ergänzen
+      const v = input.value;
+      if (input.selectionStart !== v.length) return;
+      const seg = v.slice(v.lastIndexOf(",") + 1).replace(/^\s+/, "");
+      if (!seg) return;
+      const low = seg.toLowerCase();
+      const hit = getKnown().find((c) => c.length > seg.length && c.toLowerCase().startsWith(low));
+      if (!hit) return;
+      input.value = v.slice(0, v.length - seg.length) + hit;
+      try {
+        input.setSelectionRange(v.length, input.value.length);
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Tab" && !e.shiftKey && input.selectionEnd > input.selectionStart) {
+        // Tab übernimmt den Vorschlag, statt das Feld zu verlassen
+        e.preventDefault();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    });
+  }
+
+  // Auswahlfeld mit vorhandenen Kategorien
+  _catSelect(known, onPick) {
+    const select = document.createElement("select");
+    select.className = "cat-select";
+    select.setAttribute("aria-label", this._t("catPickLabel"));
+    select.title = this._t("catPickLabel");
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = this._t("catPick");
+    ph.disabled = true;
+    ph.selected = true;
+    select.appendChild(ph);
+    for (const c of known) {
+      const o = document.createElement("option");
+      o.value = c;
+      o.textContent = c;
+      select.appendChild(o);
     }
+    select.addEventListener("change", () => {
+      if (select.value) onPick(select.value);
+    });
+    return select;
+  }
+
+  // Alle bekannten Kategorien in Board-Reihenfolge: erst die festgelegten,
+  // dann die nur an Notizen vergebenen (alphabetisch)
+  _knownCategories() {
+    const out = [...this._catList];
+    const seen = new Set(out.map((c) => c.toLowerCase()));
+    for (const c of this._allCategories()) {
+      const k = c.name.toLowerCase();
+      if (!seen.has(k)) {
+        seen.add(k);
+        out.push(c.name);
+      }
+    }
+    return out;
+  }
+
+  // Schreibweise einer vorhandenen Kategorie übernehmen ("prio a" -> "Prio A")
+  _canonicalCat(name) {
+    const k = String(name || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return this._knownCategories().find((c) => c.toLowerCase() === k) || String(name || "").replace(/\s+/g, " ").trim();
+  }
+
+  // Neue Kategorien in die festgelegte Liste aufnehmen. true = Liste hat sich geändert.
+  // Dabei werden auch die bisher nur an Notizen vergebenen Kategorien fest übernommen,
+  // damit ihre Zeile im Board stehen bleibt, wenn die letzte Notiz verschoben wird.
+  _rememberCats(names) {
+    const known = this._knownCategories();
+    const had = new Set(known.map((c) => c.toLowerCase()));
+    const fresh = (names || []).map((c) => String(c || "").replace(/\s+/g, " ").trim()).filter((c) => c && !had.has(c.toLowerCase()));
+    if (!fresh.length) return false;
+    this._catList = easyCleanCatList([...known, ...fresh]);
+    return true;
+  }
+
+  _matchesQuery(n) {
+    const q = this._query.trim().toLowerCase();
+    return !q || n.text.toLowerCase().includes(q) || (n.categories || []).some((c) => c.toLowerCase().includes(q));
+  }
+
+  _matches(n) {
+    if (!this._matchesQuery(n)) return false;
     if (this._catFilter) {
       const f = this._catFilter.toLowerCase();
       if (!(n.categories || []).some((c) => c.toLowerCase() === f)) return false;
@@ -2844,10 +3074,25 @@ class EasyNotesCard extends HTMLElement {
           font-size: 14px;
           outline: none;
         }
-        .dt:focus, .cat-input:focus { border-color: var(--primary-color); }
+        .dt:focus, .cat-input:focus, .cat-select:focus { border-color: var(--primary-color); }
         .chips { gap: 6px; }
-        .cat-row { display: flex; gap: 6px; align-items: center; }
-        .cat-row .cat-input { flex: 1; min-width: 0; }
+        .cat-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .cat-row .cat-input { flex: 1 1 120px; min-width: 0; }
+        .cat-select {
+          flex: 1 1 100%;
+          min-width: 0;
+          max-width: 100%;
+          box-sizing: border-box;
+          padding: 8px 6px;
+          border-radius: 10px;
+          border: 1px solid var(--divider-color);
+          background: var(--secondary-background-color);
+          color: var(--primary-text-color);
+          font: inherit;
+          font-size: 14px;
+          outline: none;
+          cursor: pointer;
+        }
 
         .cats { display: flex; flex-wrap: wrap; gap: 6px; }
         .cats:empty { display: none; }
@@ -2899,6 +3144,38 @@ class EasyNotesCard extends HTMLElement {
           font-weight: 500;
         }
         .chip.show { display: inline-flex; }
+        .vis-chip {
+          display: none;
+          align-items: center;
+          gap: 4px;
+          max-width: 100%;
+          padding: 2px 8px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--primary-text-color) 9%, transparent);
+          color: var(--primary-text-color);
+          font-size: 12px;
+          font-weight: 500;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .vis-chip.show { display: inline-flex; }
+        .vis-chip ha-svg-icon { --mdc-icon-size: 14px; flex-shrink: 0; }
+        .vis-list { display: flex; flex-direction: column; gap: 2px; }
+        .vis-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 5px 4px;
+          border-radius: 8px;
+          font-size: 14px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+        }
+        .vis-row:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+        .vis-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary-color); cursor: pointer; }
+        .vis-row.vis-all { font-weight: 600; border-bottom: 1px solid var(--divider-color); border-radius: 8px 8px 0 0; margin-bottom: 2px; }
+        .vis-hint { font-size: 12px; color: var(--secondary-text-color); padding: 4px 4px 0; }
         .chip.overdue { background: color-mix(in srgb, var(--warning-color, #ffa600) 38%, transparent); }
         .chip ha-svg-icon { --mdc-icon-size: 14px; }
 
@@ -2987,6 +3264,175 @@ class EasyNotesCard extends HTMLElement {
         .lv-detail { min-width: 0; }
         .lv-detail .note-md { max-height: none; }
         .lv-detail .md { font-size: 15.5px; }
+
+        /* Board-Ansicht: eine Zeile pro Kategorie */
+        .notes-list.board-mode { display: block; }
+        .board { display: flex; flex-direction: column; gap: 4px; }
+        .board-hint { padding: 8px 2px 4px; font-size: 14px; color: var(--secondary-text-color); }
+        .bl {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          padding: 8px 6px 10px;
+          border-radius: 0;
+          border-bottom: 1px solid var(--divider-color);
+          transition: background-color 0.15s;
+        }
+        .bl.over { background: color-mix(in srgb, var(--primary-color) 9%, transparent); }
+        .bl-head { display: flex; align-items: center; gap: 6px; min-height: 32px; }
+        .bl-name {
+          min-width: 0;
+          font-size: 15px;
+          font-weight: 600;
+          color: var(--primary-text-color);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .bl-none .bl-name { color: var(--secondary-text-color); font-weight: 500; }
+        .bl-cnt {
+          flex-shrink: 0;
+          min-width: 20px;
+          padding: 1px 7px;
+          border-radius: 999px;
+          background: var(--secondary-background-color);
+          color: var(--secondary-text-color);
+          font-size: 12px;
+          text-align: center;
+        }
+        .bl-head .act { flex-shrink: 0; }
+        .bl-track {
+          display: flex;
+          align-items: stretch;
+          gap: 10px;
+          min-height: 64px;
+          overflow-x: auto;
+          padding: 4px 2px 6px;
+          scrollbar-width: thin;
+          scroll-snap-type: x proximity;
+        }
+        .bl-empty {
+          flex: 1 0 160px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px dashed var(--divider-color);
+          border-radius: 12px;
+          font-size: 13px;
+          color: var(--secondary-text-color);
+        }
+        .bl-track .bc ~ .bl-empty { display: none; }
+        .bc {
+          --c: var(--blue-color, #38bdf8);
+          position: relative;
+          flex: 0 0 var(--easy-board-card-width, 210px);
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-height: 64px;
+          padding: 9px 8px 9px 12px;
+          overflow: hidden;
+          border-radius: 12px;
+          background: var(--secondary-background-color);
+          background: color-mix(in srgb, var(--c) 14%, var(--card-background-color));
+          border: 1px solid color-mix(in srgb, var(--c) 40%, transparent);
+          color: var(--primary-text-color);
+          cursor: pointer;
+          scroll-snap-align: start;
+          user-select: none;
+          -webkit-user-select: none;
+        }
+        .bc::before {
+          content: "";
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 4px;
+          background: var(--c);
+        }
+        .bc:hover { border-color: var(--c); }
+        .bc:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+        .bc.due { animation: due-pulse 2.4s ease-in-out infinite; }
+        .bc-top { display: flex; align-items: flex-start; gap: 4px; }
+        .bc-title {
+          flex: 1;
+          min-width: 0;
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.3;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          overflow-wrap: anywhere;
+        }
+        .bc-handle {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          margin: -3px -3px 0 0;
+          padding: 0;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--secondary-text-color);
+          cursor: grab;
+          touch-action: none;
+        }
+        .bc-handle:hover, .bc-handle:focus-visible { background: rgba(127, 127, 127, 0.18); outline: none; }
+        .bc-handle ha-svg-icon { --mdc-icon-size: 18px; }
+        .bc-snip {
+          font-size: 12.5px;
+          line-height: 1.35;
+          color: var(--secondary-text-color);
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          overflow-wrap: anywhere;
+        }
+        .bc-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; padding-top: 2px; }
+        .bc-tag {
+          display: inline-flex;
+          align-items: center;
+          gap: 3px;
+          max-width: 100%;
+          padding: 1px 7px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--c) 24%, transparent);
+          font-size: 11.5px;
+          font-weight: 500;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .bc-tag ha-svg-icon { --mdc-icon-size: 13px; flex-shrink: 0; }
+        .bc-tag.ok { background: color-mix(in srgb, var(--success-color, #43a047) 26%, transparent); }
+        .bc.due .bc-tag.rem { background: color-mix(in srgb, var(--warning-color, #ffa600) 40%, transparent); }
+        .bc-tag.cat { background: transparent; border: 1px solid var(--divider-color); color: var(--secondary-text-color); }
+        .bc.bc-placeholder {
+          opacity: 0.35;
+          border-style: dashed;
+          animation: none;
+        }
+        .bc-ghost {
+          position: fixed;
+          z-index: 9999;
+          margin: 0;
+          pointer-events: none;
+          cursor: grabbing;
+          transform: rotate(1.5deg) scale(1.03);
+          box-shadow: var(--ha-box-shadow-l, 0 12px 28px rgba(0, 0, 0, 0.35));
+          background: color-mix(in srgb, var(--c) 18%, var(--card-background-color, #fff));
+        }
+        :host(.board-dragging) { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+        .board-add { margin-top: 8px; padding: 0 6px; }
+        @media (max-width: 600px) {
+          .bc { flex-basis: var(--easy-board-card-width, 170px); }
+        }
 
         /* Netzansicht */
         .graph-host { display: none; }
@@ -3247,6 +3693,27 @@ class EasyNotesCard extends HTMLElement {
           .ed-tab { padding: 5px 10px; }
         }
         .ed-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ed-cats {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 16px 8px 20px;
+          border-top: 1px solid var(--divider-color);
+        }
+        .ed-cats-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          margin-inline-end: 4px;
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--secondary-text-color);
+        }
+        .ed-cats-label ha-svg-icon { --mdc-icon-size: 16px; }
+        .ed-cats .cat-chip { font-size: 13px; padding-block: 4px; }
+        .ed-cats .cat-input { flex: 1 1 160px; width: auto; min-width: 120px; padding: 6px 10px; }
+        .ed-cats .cat-select { flex: 0 1 200px; padding: 6px; }
         .ed-confirm {
           display: flex;
           flex-wrap: wrap;
@@ -3269,7 +3736,7 @@ class EasyNotesCard extends HTMLElement {
         .ed-hint { flex: 1; font-size: 12px; color: var(--secondary-text-color); }
 
         @media (prefers-reduced-motion: reduce) {
-          .note.due, .note.flash, .g-note.due .due-ring { animation: none; }
+          .note.due, .note.flash, .g-note.due .due-ring, .bc.due { animation: none; }
         }
       </style>
       <ha-card>
@@ -3285,6 +3752,7 @@ class EasyNotesCard extends HTMLElement {
             <button class="badge" id="badge" type="button"><ha-svg-icon id="badge-icon"></ha-svg-icon><span id="badge-text"></span></button>
             <div class="seg" id="seg" role="group">
               <button type="button" class="seg-btn" data-view="notes"><ha-svg-icon id="seg-notes"></ha-svg-icon></button>
+              <button type="button" class="seg-btn" data-view="board"><ha-svg-icon id="seg-board"></ha-svg-icon></button>
               <button type="button" class="seg-btn" data-view="graph"><ha-svg-icon id="seg-graph"></ha-svg-icon></button>
             </div>
             <div class="menu-wrap" id="menu-wrap">
@@ -3358,6 +3826,7 @@ class EasyNotesCard extends HTMLElement {
     $("badge-icon").path = mdiBellRing;
     $("seg-notes").path = mdiNoteMultipleOutline;
     $("seg-graph").path = mdiGraphOutline;
+    $("seg-board").path = mdiViewBoard;
     $("seg-tiles").path = mdiViewGridOutline;
     $("seg-list").path = mdiViewSplitVertical;
     $("backup-icon").path = mdiBackupRestore;
@@ -3459,7 +3928,8 @@ class EasyNotesCard extends HTMLElement {
       b.setAttribute("aria-label", this._t(key));
     }
     for (const b of this._elSeg.querySelectorAll(".seg-btn")) {
-      const label = this._t(b.dataset.view === "graph" ? "viewGraph" : "viewNotes");
+      const v = b.dataset.view;
+      const label = this._t(v === "graph" ? "viewGraph" : v === "board" ? "viewBoard" : "viewNotes");
       b.title = label;
       b.setAttribute("aria-label", label);
     }
@@ -3530,7 +4000,7 @@ class EasyNotesCard extends HTMLElement {
   // ---------- Ansichten ----------
   _setView(view) {
     if (!EASY_VIEWS.includes(view)) return;
-    if (view === "graph" && this._view === "notes") {
+    if (view === "graph" && this._view !== "graph") {
       const h = this._elList.getBoundingClientRect().height;
       if (h > 0) this.style.setProperty("--easy-graph-h", `${Math.round(Math.min(700, Math.max(280, h)))}px`);
     }
@@ -3578,18 +4048,24 @@ class EasyNotesCard extends HTMLElement {
 
   _render() {
     const graph = this._view === "graph";
+    const board = this._view === "board";
     this._applyReadOnly();
     for (const b of this._elSeg.querySelectorAll(".seg-btn")) {
       b.setAttribute("aria-pressed", String(b.dataset.view === this._view));
     }
-    this._elSegLayout.hidden = graph || !this._wide;
+    this._elSegLayout.hidden = this._view !== "notes" || !this._wide;
     for (const b of this._elSegLayout.querySelectorAll(".seg-btn")) {
       b.setAttribute("aria-pressed", String(b.dataset.layout === this._layoutMode));
     }
     this._elList.style.display = graph ? "none" : "";
-    this._elCatbar.style.display = graph ? "none" : "";
-    this._elCatwrap.style.display = graph ? "none" : "";
-    if (graph) this._elMore.hidden = true;
+    // Im Board sind die Kategorien die Zeilen, die Filter-Leiste entfällt
+    this._elCatbar.style.display = graph || board ? "none" : "";
+    this._elCatwrap.style.display = graph || board ? "none" : "";
+    if (graph || board) this._elMore.hidden = true;
+    if (!board) {
+      this._boardEls = null;
+      this._elList.classList.remove("board-mode");
+    }
     this._elGraphHost.classList.toggle("show", graph);
     if (graph) {
       this._noteEls.clear();
@@ -3598,6 +4074,9 @@ class EasyNotesCard extends HTMLElement {
       if (this._loaded) this._graph.setData(this._notes);
       this._graph.applyQuery(this._query);
       this._updateBadge();
+    } else if (board) {
+      if (this._graph) this._graph.pause();
+      this._renderBoard();
     } else {
       if (this._graph) this._graph.pause();
       this._renderNotes();
@@ -3786,6 +4265,429 @@ class EasyNotesCard extends HTMLElement {
     this._layout(true);
     this._tick();
     this._updateListFade();
+  }
+
+  // ---------- Board-Ansicht ----------
+  // Eine Zeile pro Kategorie (Reihenfolge = festgelegte Kategorien), darin die Notizen
+  // als kompakte Karten. Verschieben per Drag & Drop innerhalb der Zeile (Reihenfolge)
+  // und in andere Zeilen (Kategorie wechseln). Notizen ohne Kategorie stehen ganz unten.
+  _laneKey(cat) {
+    // Kategorien sind getrimmt, ein führendes Leerzeichen kann also nicht vorkommen
+    return cat === null ? " none" : cat.toLowerCase();
+  }
+
+  _inLane(n, cat) {
+    const cats = n.categories || [];
+    if (cat === null) return !cats.length;
+    const k = cat.toLowerCase();
+    return cats.some((c) => c.toLowerCase() === k);
+  }
+
+  _renderBoard() {
+    const list = this._elList;
+    const keepTop = list.scrollTop;
+    const keepLeft = new Map();
+    for (const tr of list.querySelectorAll(".bl")) keepLeft.set(tr.dataset.key, tr.querySelector(".bl-track").scrollLeft);
+    list.replaceChildren();
+    this._noteEls.clear();
+    this._visibleEls = [];
+    this._cols = 0;
+    this._rowEls = null;
+    this._boardEls = new Map();
+    list.classList.remove("list-mode", "filtering");
+    list.classList.add("board-mode");
+    this._updateMore(0);
+    if (!this._loaded) {
+      this._updateBadge();
+      return;
+    }
+    const ro = this._readOnly();
+    const items = this._notes.filter((n) => this._matchesQuery(n));
+    const listed = new Set(this._catList.map((c) => c.toLowerCase()));
+    const lanes = [...this._knownCategories(), null];
+    const board = document.createElement("div");
+    board.className = "board";
+
+    if (lanes.length === 1 && !this._notes.length) {
+      const hint = document.createElement("div");
+      hint.className = "board-hint";
+      hint.textContent = this._t("boardHint");
+      board.appendChild(hint);
+    }
+
+    lanes.forEach((cat, li) => {
+      const laneNotes = items.filter((n) => this._inLane(n, cat));
+      // "Ohne Kategorie" nur zeigen, wenn dort etwas liegt oder man hineinziehen kann
+      if (cat === null && ro && !laneNotes.length) return;
+      const lane = document.createElement("section");
+      lane.className = "bl" + (cat === null ? " bl-none" : "");
+      lane.dataset.key = this._laneKey(cat);
+      lane._cat = cat;
+
+      const head = document.createElement("div");
+      head.className = "bl-head";
+      const name = document.createElement("span");
+      name.className = "bl-name";
+      name.textContent = cat === null ? this._t("boardNone") : cat;
+      const cnt = document.createElement("span");
+      cnt.className = "bl-cnt";
+      cnt.textContent = laneNotes.length;
+      const sp = document.createElement("span");
+      sp.className = "spacer";
+      head.append(name, cnt, sp);
+      lane.setAttribute("aria-label", name.textContent);
+
+      if (!ro) {
+        const add = this._btn({
+          icon: mdiPlus,
+          title: cat === null ? this._t("boardAddNoteNone") : this._t("boardAddNote").replace("{c}", cat),
+          cls: "act",
+        });
+        add.addEventListener("click", () => this._addNote({ category: cat }));
+        head.appendChild(add);
+        if (cat !== null) {
+          const last = lanes.length - 2; // ohne die Zeile "Ohne Kategorie"
+          const up = this._btn({ icon: mdiChevronUp, title: this._t("boardUp"), cls: "act" });
+          const down = this._btn({ icon: mdiChevronDown, title: this._t("boardDown"), cls: "act" });
+          if (li === 0) up.setAttribute("disabled", "");
+          if (li === last) down.setAttribute("disabled", "");
+          up.addEventListener("click", () => this._moveLane(cat, -1));
+          down.addEventListener("click", () => this._moveLane(cat, 1));
+          head.append(up, down);
+          // Entfernen nur, wenn wirklich keine Notiz (auch keine ausgefilterte) darin liegt
+          if (listed.has(cat.toLowerCase()) && !this._notes.some((n) => this._inLane(n, cat))) {
+            const del = this._btn({ icon: mdiDelete, title: this._t("boardDelete").replace("{c}", cat), cls: "act del-btn" });
+            del.querySelector("ha-svg-icon").classList.add("del-icon");
+            del.addEventListener("click", () => this._removeLane(cat));
+            head.appendChild(del);
+          }
+        }
+      }
+
+      const track = document.createElement("div");
+      track.className = "bl-track";
+      for (const n of laneNotes) track.appendChild(this._boardCard(n, cat));
+      const empty = document.createElement("div");
+      empty.className = "bl-empty";
+      empty.textContent = ro ? this._t("boardEmptyLane") : this._t("boardDrop");
+      track.appendChild(empty);
+      lane.append(head, track);
+      board.appendChild(lane);
+      if (keepLeft.has(lane.dataset.key)) track.scrollLeft = keepLeft.get(lane.dataset.key);
+    });
+
+    // Neue Kategorie anlegen (auch ohne Notiz)
+    if (!ro) {
+      const row = document.createElement("div");
+      row.className = "board-add cat-row";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "cat-input";
+      input.placeholder = this._t("boardNewCat");
+      input.setAttribute("aria-label", this._t("boardNewCat"));
+      input.maxLength = 40;
+      const btn = this._btn({ icon: mdiPlus, label: this._t("boardNewCatBtn"), appearance: "outlined", size: "s" });
+      const commit = () => {
+        const v = input.value.replace(/\s+/g, " ").trim();
+        if (!v) return;
+        if (this._knownCategories().some((c) => c.toLowerCase() === v.toLowerCase())) {
+          this._setMessage(this._t("boardExists").replace("{c}", this._canonicalCat(v)));
+          input.select();
+          return;
+        }
+        this._rememberCats([v]);
+        this._scheduleSave();
+        this._render();
+        const again = this._elList.querySelector(".board-add .cat-input");
+        if (again) again.focus();
+      };
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
+      });
+      btn.addEventListener("click", commit);
+      row.append(input, btn);
+      board.appendChild(row);
+    }
+
+    list.appendChild(board);
+    list.scrollTop = keepTop;
+    this._tick();
+    this._updateListFade();
+  }
+
+  // Kompakte Karte im Board
+  _boardCard(note, cat) {
+    const id = String(note.id);
+    const ro = this._readOnly();
+    const card = document.createElement("div");
+    card.className = "bc";
+    card.dataset.id = id;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.title = ro ? this._t("openNote") : this._t("boardOpen");
+
+    const fill = () => {
+      const lines = easyPlainLines(note.text);
+      card.style.setProperty("--c", this._colorValue(note.color));
+      card.classList.toggle("due", this._isDue(note));
+      const top = document.createElement("div");
+      top.className = "bc-top";
+      const title = document.createElement("span");
+      title.className = "bc-title";
+      title.textContent = lines[0] || this._t("emptyNote");
+      top.appendChild(title);
+      if (!ro) {
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "bc-handle";
+        handle.title = this._t("boardDrag");
+        handle.setAttribute("aria-label", this._t("boardDrag"));
+        handle.appendChild(this._icon(mdiDragVertical));
+        handle.addEventListener("keydown", (e) => this._boardKey(e, note, cat));
+        top.appendChild(handle);
+      }
+      const snip = document.createElement("div");
+      snip.className = "bc-snip";
+      snip.textContent = lines.slice(1, 4).join(" ").slice(0, 200);
+      const meta = document.createElement("div");
+      meta.className = "bc-meta";
+      // Checklisten-Fortschritt
+      const tasks = note.text.match(/^\s*(?:>\s?)*\s*(?:[-*+]|\d+[.)])\s+\[( |x|X)\]/gm) || [];
+      if (tasks.length) {
+        const done = tasks.filter((t) => /\[(x|X)\]$/.test(t)).length;
+        const tc = document.createElement("span");
+        tc.className = "bc-tag" + (done === tasks.length ? " ok" : "");
+        tc.append(this._icon(mdiCheck), document.createTextNode(`${done}/${tasks.length}`));
+        meta.appendChild(tc);
+      }
+      if (this._remindersOn() && note.remind_at) {
+        const rc = document.createElement("span");
+        rc.className = "bc-tag rem";
+        rc.append(this._icon(this._isDue(note) ? mdiBellRing : mdiBell), document.createTextNode(this._fmtReminder(note.remind_at)));
+        meta.appendChild(rc);
+      }
+      // Weitere Kategorien der Notiz (die eigene Zeile steht schon im Kopf)
+      for (const c of note.categories || []) {
+        if (cat !== null && c.toLowerCase() === cat.toLowerCase()) continue;
+        const cc = document.createElement("span");
+        cc.className = "bc-tag cat";
+        cc.textContent = `# ${c}`;
+        meta.appendChild(cc);
+      }
+      card.replaceChildren(top);
+      if (snip.textContent) card.appendChild(snip);
+      if (meta.childNodes.length) card.appendChild(meta);
+    };
+    fill();
+
+    const open = () => {
+      if (ro) this._openNote(id);
+      else this._openEditor(note);
+    };
+    card.addEventListener("click", (e) => {
+      if (card._dragged) {
+        card._dragged = false;
+        return;
+      }
+      if (e.target.closest && e.target.closest(".bc-handle")) return;
+      open();
+    });
+    card.addEventListener("keydown", (e) => {
+      if (e.target !== card) return;
+      if (e.key === "Enter" || e.key === " " || e.key === "F2") {
+        e.preventDefault();
+        e.stopPropagation();
+        open();
+      }
+    });
+    if (!ro) card.addEventListener("pointerdown", (e) => this._boardPointerDown(e, card, note, cat));
+
+    if (!this._boardEls.has(id)) this._boardEls.set(id, []);
+    this._boardEls.get(id).push({ el: card, fill });
+    return card;
+  }
+
+  // Maus: ganze Karte ziehbar. Touch/Stift: nur am Griff (sonst wischt man die Zeile)
+  _boardPointerDown(e, card, note, cat) {
+    if (e.button !== undefined && e.button > 0) return;
+    const onHandle = !!(e.target.closest && e.target.closest(".bc-handle"));
+    if (e.pointerType !== "mouse" && !onHandle) return;
+    if (onHandle) e.preventDefault();
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const pre = (ev) => {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 6) return;
+      stop();
+      this._boardDrag(ev, card, note, cat, { x: sx, y: sy });
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", pre);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+    window.addEventListener("pointermove", pre);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  }
+
+  _boardDrag(ev0, card, note, fromCat, start) {
+    const list = this._elList;
+    const r0 = card.getBoundingClientRect();
+    const grab = { x: start.x - r0.left, y: start.y - r0.top };
+    this._dragging = true;
+    card._dragged = true;
+
+    // Schwebende Kopie unter dem Zeiger, die Karte selbst bleibt als Platzhalter im Board
+    const ghost = card.cloneNode(true);
+    ghost.classList.add("bc-ghost");
+    ghost.style.width = `${r0.width}px`;
+    ghost.style.left = "0px";
+    ghost.style.top = "0px";
+    this.shadowRoot.appendChild(ghost);
+    // Versatz ausgleichen, falls ein Vorfahre fixed-Positionierung verschiebt
+    const g0 = ghost.getBoundingClientRect();
+    const off = { x: g0.left, y: g0.top };
+    card.classList.add("bc-placeholder");
+    this.shadowRoot.host.classList.add("board-dragging");
+
+    let overLane = null;
+    const move = (ev) => {
+      ghost.style.left = `${ev.clientX - grab.x - off.x}px`;
+      ghost.style.top = `${ev.clientY - grab.y - off.y}px`;
+      const hit = this.shadowRoot.elementFromPoint ? this.shadowRoot.elementFromPoint(ev.clientX, ev.clientY) : null;
+      const lane = hit && hit.closest ? hit.closest(".bl") : null;
+      if (lane !== overLane) {
+        if (overLane) overLane.classList.remove("over");
+        overLane = lane;
+        if (lane) lane.classList.add("over");
+      }
+      if (lane) {
+        const track = lane.querySelector(".bl-track");
+        const cards = [...track.querySelectorAll(".bc")].filter((c) => c !== card);
+        const before = cards.find((c) => {
+          const r = c.getBoundingClientRect();
+          return ev.clientX < r.left + r.width / 2;
+        });
+        const ref = before || track.querySelector(".bl-empty");
+        if (card.parentNode !== track || card.nextSibling !== ref) track.insertBefore(card, ref);
+        // Zeile seitlich mitscrollen
+        const tr = track.getBoundingClientRect();
+        if (ev.clientX < tr.left + 40) track.scrollLeft -= 14;
+        else if (ev.clientX > tr.right - 40) track.scrollLeft += 14;
+      }
+      if (list.scrollHeight > list.clientHeight) {
+        const lr = list.getBoundingClientRect();
+        if (ev.clientY < lr.top + 40) list.scrollTop -= 12;
+        else if (ev.clientY > lr.bottom - 40) list.scrollTop += 12;
+      }
+    };
+    const end = (ev) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      ghost.remove();
+      card.classList.remove("bc-placeholder");
+      this.shadowRoot.host.classList.remove("board-dragging");
+      if (overLane) overLane.classList.remove("over");
+      this._dragging = false;
+      // Klick nach dem Loslassen nicht als "Öffnen" werten
+      setTimeout(() => (card._dragged = false), 0);
+      const lane = card.closest(".bl");
+      if (!ev || ev.type === "pointercancel" || !lane) {
+        this._render();
+        return;
+      }
+      let next = card.nextElementSibling;
+      while (next && !next.classList.contains("bc")) next = next.nextElementSibling;
+      this._boardMove(note, fromCat, lane._cat, next ? next.dataset.id : null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    move(ev0);
+  }
+
+  // Notiz in Zeile toCat vor die Notiz beforeId setzen (null = ans Ende der Zeile)
+  _boardMove(note, fromCat, toCat, beforeId, focus = false) {
+    const k = (c) => (c === null ? null : c.toLowerCase());
+    if (k(fromCat) !== k(toCat)) {
+      if (toCat === null) {
+        note.categories = [];
+      } else {
+        const cats = (note.categories || []).filter((c) => fromCat === null || c.toLowerCase() !== k(fromCat));
+        // Ist die Notiz schon voll (12), ersetzt die neue Kategorie die letzte
+        if (cats.length >= 12) cats.length = 11;
+        cats.push(toCat);
+        note.categories = easyCleanCats(cats);
+      }
+    }
+    const from = this._notes.indexOf(note);
+    if (from >= 0) this._notes.splice(from, 1);
+    let idx = beforeId !== null && beforeId !== undefined ? this._notes.findIndex((n) => String(n.id) === String(beforeId)) : -1;
+    if (idx < 0) {
+      let last = -1;
+      this._notes.forEach((n, i) => {
+        if (this._inLane(n, toCat)) last = i;
+      });
+      idx = last >= 0 ? last + 1 : Math.max(0, Math.min(from, this._notes.length));
+    }
+    this._notes.splice(idx, 0, note);
+    this._scheduleSave();
+    this._render();
+    if (focus) {
+      const sel = `.bl[data-key="${CSS.escape(this._laneKey(toCat))}"] .bc[data-id="${CSS.escape(String(note.id))}"] .bc-handle`;
+      const h = this._elList.querySelector(sel);
+      if (h) {
+        h.focus();
+        const c = h.closest(".bc");
+        if (c && c.scrollIntoView) c.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    }
+  }
+
+  // Tastatur am Griff: links/rechts = Reihenfolge, hoch/runter = andere Kategorie
+  _boardKey(e, note, cat) {
+    e.stopPropagation();
+    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    const laneIds = [...this._elList.querySelectorAll(`.bl[data-key="${CSS.escape(this._laneKey(cat))}"] .bc`)].map((c) => c.dataset.id);
+    const i = laneIds.indexOf(String(note.id));
+    if (e.key === "ArrowLeft") {
+      if (i <= 0) return;
+      this._boardMove(note, cat, cat, laneIds[i - 1], true);
+    } else if (e.key === "ArrowRight") {
+      if (i < 0 || i >= laneIds.length - 1) return;
+      this._boardMove(note, cat, cat, laneIds[i + 2] ?? null, true);
+    } else {
+      const lanes = [...this._elList.querySelectorAll(".bl")].map((l) => l._cat);
+      const li = lanes.findIndex((c) => this._laneKey(c) === this._laneKey(cat));
+      const to = lanes[li + (e.key === "ArrowUp" ? -1 : 1)];
+      if (to === undefined) return;
+      this._boardMove(note, cat, to, null, true);
+    }
+  }
+
+  _moveLane(cat, dir) {
+    const order = this._knownCategories();
+    const i = order.findIndex((c) => c.toLowerCase() === cat.toLowerCase());
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    this._catList = easyCleanCatList(order);
+    this._scheduleSave();
+    this._render();
+  }
+
+  _removeLane(cat) {
+    if (this._notes.some((n) => this._inLane(n, cat))) return;
+    this._catList = this._catList.filter((c) => c.toLowerCase() !== cat.toLowerCase());
+    this._scheduleSave();
+    this._render();
   }
 
   // Listenansicht: links kompakte Zeilen, rechts die ausgewählte Notiz mit allen Funktionen
@@ -4018,6 +4920,9 @@ class EasyNotesCard extends HTMLElement {
     spacer.className = "spacer";
 
     const tagBtn = this._btn({ icon: mdiTagOutline, title: this._t("cats"), cls: "act" });
+    const visOn = this._visibilityOn() && !this._readOnly();
+    if (visOn) this._ensureUsers();
+    const visBtn = visOn ? this._btn({ icon: mdiAccountMultipleOutline, title: this._t("visibility"), cls: "act" }) : null;
     const bellBtn = remindOn ? this._btn({ icon: mdiBellOutline, title: this._t("remind"), cls: "act" }) : null;
     const palBtn = this._btn({ icon: mdiPalette, title: this._t("color"), cls: "act" });
     const delBtn = this._btn({ icon: mdiDelete, title: this._t("del"), cls: "act del-btn" });
@@ -4026,7 +4931,9 @@ class EasyNotesCard extends HTMLElement {
     if (readOnly) {
       top.style.display = "none";
     } else {
-      top.append(handle, spacer, tagBtn);
+      top.append(handle, spacer);
+      if (visBtn) top.append(visBtn);
+      top.append(tagBtn);
       if (bellBtn) top.append(bellBtn);
       top.append(palBtn, delBtn);
     }
@@ -4070,12 +4977,17 @@ class EasyNotesCard extends HTMLElement {
     const edited = document.createElement("span");
     const footSpacer = document.createElement("span");
     footSpacer.className = "foot-spacer";
+    const visChip = document.createElement("span");
+    visChip.className = "vis-chip";
+    visChip.appendChild(this._icon(mdiAccountMultipleOutline));
+    const visChipText = document.createElement("span");
+    visChip.appendChild(visChipText);
     const chip = document.createElement("span");
     chip.className = "chip";
     const chipText = document.createElement("span");
     chip.append(this._icon(mdiBell), chipText);
     const editorBtn = this._btn({ icon: mdiTextBoxEditOutline, title: this._t("openEditor"), cls: "act editor-btn" });
-    foot.append(edited, footSpacer, chip);
+    foot.append(edited, footSpacer, visChip, chip);
     if (!readOnly) foot.append(editorBtn);
 
     el.append(top, panel, dueBar, body, cats, foot);
@@ -4208,6 +5120,10 @@ class EasyNotesCard extends HTMLElement {
       const e = this._fmtEdited(note);
       edited.textContent = e ? `${this._t("edited")} ${e}` : "";
       renderCats();
+      const vl = visOn ? this._visLabel(note) : "";
+      visChipText.textContent = vl;
+      visChip.classList.toggle("show", !!vl);
+      visChip.title = vl ? `${this._t("visibility")}: ${vl}` : "";
       this._updateBadge();
       this._syncRow(note);
     };
@@ -4217,10 +5133,12 @@ class EasyNotesCard extends HTMLElement {
       const parts = String(raw || "")
         .split(",")
         .map((s) => s.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((s) => this._canonicalCat(s)); // vorhandene Schreibweise, keine Doppelten
       if (!parts.length) return false;
       const next = easyCleanCats([...(note.categories || []), ...parts]);
       if (next.length === (note.categories || []).length) return false;
+      this._rememberCats(next); // vor dem Zuweisen: neue Kategorien stehen danach überall zur Auswahl
       note.categories = next;
       this._scheduleSave();
       refresh();
@@ -4229,7 +5147,7 @@ class EasyNotesCard extends HTMLElement {
     };
 
     // --- Panel zeichnen ---
-    const panelBtns = { cats: tagBtn, color: palBtn, reminder: bellBtn };
+    const panelBtns = { visibility: visBtn, cats: tagBtn, color: palBtn, reminder: bellBtn };
     const renderPanel = () => {
       panel.replaceChildren();
       panel.classList.toggle("open", !!panelType);
@@ -4311,6 +5229,54 @@ class EasyNotesCard extends HTMLElement {
           chips.appendChild(rm);
         }
         panel.appendChild(chips);
+      } else if (panelType === "visibility") {
+        const box = document.createElement("div");
+        box.className = "vis-list";
+        const users = this._users;
+        if (!users) {
+          box.textContent = this._t("visLoading");
+        } else {
+          const restricted = Array.isArray(note.visible_to);
+          const row = (label, checked, onChange, cls = "") => {
+            const l = document.createElement("label");
+            l.className = `vis-row ${cls}`.trim();
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.checked = checked;
+            cb.addEventListener("change", () => onChange(cb.checked));
+            const span = document.createElement("span");
+            span.textContent = label;
+            l.append(cb, span);
+            box.appendChild(l);
+            return cb;
+          };
+          const apply = (list) => {
+            if (list === null) delete note.visible_to;
+            else note.visible_to = list;
+            this._scheduleSave();
+            refresh();
+            renderPanel();
+          };
+          row(this._t("visAll"), !restricted, (on) => apply(on ? null : []), "vis-all");
+          for (const u of users) {
+            const sel = restricted && note.visible_to.includes(u.id);
+            row(u.name, sel, (on) => {
+              const cur = Array.isArray(note.visible_to) ? note.visible_to : [];
+              apply(on ? [...cur, u.id] : cur.filter((x) => x !== u.id));
+            });
+          }
+          const hint = document.createElement("div");
+          hint.className = "vis-hint";
+          hint.textContent = this._usersError
+            ? this._t("visUsersError")
+            : !users.length
+              ? `${this._t("visNoUsers")} ${this._t("visAdminsHint")}`
+              : restricted && !note.visible_to.length
+                ? `${this._t("visOnlyAdmins")}. ${this._t("visAdminsHint")}`
+                : this._t("visAdminsHint");
+          box.appendChild(hint);
+        }
+        panel.appendChild(box);
       } else if (panelType === "cats") {
         // Zugewiesene Kategorien (entfernbar)
         if ((note.categories || []).length) {
@@ -4342,7 +5308,9 @@ class EasyNotesCard extends HTMLElement {
           panel.appendChild(current);
         }
 
-        // Eingabe
+        // Eingabe mit Autovervollständigung, daneben Auswahl der vorhandenen Kategorien
+        const have = new Set((note.categories || []).map((c) => c.toLowerCase()));
+        const known = this._knownCategories().filter((c) => !have.has(c.toLowerCase()));
         const row = document.createElement("div");
         row.className = "cat-row";
         const input = document.createElement("input");
@@ -4350,6 +5318,7 @@ class EasyNotesCard extends HTMLElement {
         input.className = "cat-input";
         input.placeholder = this._t("catAdd");
         input.setAttribute("aria-label", this._t("catAdd"));
+        input.setAttribute("autocomplete", "off");
         input.maxLength = 120;
         const addBtn = this._btn({ label: this._t("catAddBtn"), appearance: "outlined", size: "s" });
         const commit = () => {
@@ -4361,6 +5330,7 @@ class EasyNotesCard extends HTMLElement {
             input.value = "";
           }
         };
+        this._catAutocomplete(input, () => known);
         input.addEventListener("keydown", (e) => {
           e.stopPropagation();
           if (e.key === "Enter") {
@@ -4370,13 +5340,20 @@ class EasyNotesCard extends HTMLElement {
         });
         addBtn.addEventListener("click", commit);
         row.append(input, addBtn);
+        if (known.length) {
+          const select = this._catSelect(known, (v) => {
+            addCats(v);
+            renderPanel();
+            const inp = panel.querySelector(".cat-input");
+            if (inp) inp.focus();
+          });
+          select.addEventListener("keydown", (e) => e.stopPropagation());
+          row.appendChild(select);
+        }
         panel.appendChild(row);
 
         // Vorschläge aus vorhandenen Kategorien
-        const have = new Set((note.categories || []).map((c) => c.toLowerCase()));
-        const sugg = this._allCategories()
-          .filter((c) => !have.has(c.name.toLowerCase()))
-          .slice(0, 10);
+        const sugg = known.slice(0, 10);
         if (sugg.length) {
           const wrap = document.createElement("div");
           wrap.className = "chips";
@@ -4384,9 +5361,9 @@ class EasyNotesCard extends HTMLElement {
             const b = document.createElement("button");
             b.type = "button";
             b.className = "cat-chip suggest";
-            b.textContent = `+ ${c.name}`;
+            b.textContent = `+ ${c}`;
             b.addEventListener("click", () => {
-              addCats(c.name);
+              addCats(c);
               renderPanel();
             });
             wrap.appendChild(b);
@@ -4432,6 +5409,7 @@ class EasyNotesCard extends HTMLElement {
     editorBtn.addEventListener("click", () => this._openEditor(note));
 
     tagBtn.addEventListener("click", () => togglePanel("cats"));
+    if (visBtn) visBtn.addEventListener("click", () => togglePanel("visibility"));
     palBtn.addEventListener("click", () => togglePanel("color"));
     if (bellBtn) bellBtn.addEventListener("click", () => togglePanel("reminder"));
     snoozeBtn.addEventListener("click", () => setReminder(new Date(Date.now() + snoozeMin * 60000)));
@@ -4527,25 +5505,40 @@ class EasyNotesCard extends HTMLElement {
   }
 
   // ---------- Aktionen ----------
-  _addNote() {
+  // category: aus einer Board-Zeile (null = ohne Kategorie, undefined = wie bisher)
+  _addNote({ category } = {}) {
     if (!this._loaded || this._readOnly()) return; // nicht über ungeladene Daten schreiben
     const key =
       this._config.note_color === "random"
         ? EASY_COLOR_KEYS[Math.floor(Math.random() * EASY_COLOR_KEYS.length)]
         : this._config.note_color;
+    const board = this._view === "board";
     // Bei aktivem Kategorie-Filter landet die neue Notiz direkt in dieser Kategorie
-    const categories = this._catFilter ? easyCleanCats([this._catFilter]) : [];
+    const categories =
+      category !== undefined
+        ? easyCleanCats(category === null ? [] : [category])
+        : !board && this._catFilter
+          ? easyCleanCats([this._catFilter])
+          : [];
     const newId = easyUid();
     this._listSel = String(newId);
-    this._notes.unshift({
+    const note = {
       id: newId,
       text: "",
       color: key,
       categories,
       updated: new Date().toISOString(),
-    });
+    };
+    this._notes.unshift(note);
     this._query = "";
     this._elSearch.value = "";
+    if (board) {
+      // Im Board direkt im Editor-Popup schreiben
+      this._render();
+      this._scheduleSave();
+      this._openEditor(note, { fresh: true });
+      return;
+    }
     if (this._view !== "notes") this._setView("notes");
     else this._render();
     this._scheduleSave();
@@ -4577,6 +5570,7 @@ class EasyNotesCard extends HTMLElement {
           <textarea class="ed-ta" spellcheck="true"></textarea>
           <div class="ed-preview md"></div>
         </div>
+        <div class="ed-cats"></div>
         <div class="ed-confirm" hidden><span class="ed-confirm-text"></span></div>
         <div class="ed-foot"><span class="ed-hint"></span></div>
       </div>`;
@@ -4587,6 +5581,9 @@ class EasyNotesCard extends HTMLElement {
       ta: $(".ed-ta"),
       preview: $(".ed-preview"),
       confirm: $(".ed-confirm"),
+      catsBox: $(".ed-cats"),
+      cats: [],
+      origCats: [],
       note: null,
       orig: "",
       raf: null,
@@ -4705,11 +5702,16 @@ class EasyNotesCard extends HTMLElement {
     return ed;
   }
 
-  _openEditor(note) {
+  // fresh: gerade im Board angelegt, bleibt sie leer, wird sie beim Schließen wieder entfernt
+  _openEditor(note, { fresh = false } = {}) {
     const ed = this._ensureEditor();
     ed.note = note;
+    ed.fresh = fresh;
     ed.orig = note.text;
     ed.ta.value = note.text;
+    ed.cats = [...(note.categories || [])];
+    ed.origCats = [...ed.cats];
+    this._edRenderCats();
     ed.confirm.hidden = true;
     ed.dlg.style.setProperty("--c", this._colorValue(note.color));
     this._edMode("write");
@@ -4760,10 +5762,98 @@ class EasyNotesCard extends HTMLElement {
     }
   }
 
+  // Kategorien im Editor: Entwurf, gilt erst mit "Speichern"
+  _edRenderCats() {
+    const ed = this._ed;
+    const box = ed.catsBox;
+    const typed = box.querySelector(".cat-input");
+    const hadFocus = typed && this.shadowRoot.activeElement === typed;
+    box.replaceChildren();
+    const label = document.createElement("span");
+    label.className = "ed-cats-label";
+    label.append(this._icon(mdiTagOutline), document.createTextNode(this._t("edCats")));
+    box.appendChild(label);
+    for (const c of ed.cats) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "cat-chip removable";
+      const t = this._t("catRemove").replace("{c}", c);
+      b.title = t;
+      b.setAttribute("aria-label", t);
+      const sp = document.createElement("span");
+      sp.textContent = `# ${c}`;
+      const x = this._icon(mdiClose);
+      x.classList.add("x");
+      b.append(sp, x);
+      b.addEventListener("click", () => {
+        ed.cats = ed.cats.filter((v) => v !== c);
+        this._edRenderCats();
+      });
+      box.appendChild(b);
+    }
+    const have = new Set(ed.cats.map((c) => c.toLowerCase()));
+    const known = this._knownCategories().filter((c) => !have.has(c.toLowerCase()));
+    if (ed.cats.length < 12) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "cat-input";
+      input.placeholder = this._t("catAdd");
+      input.setAttribute("aria-label", this._t("catAdd"));
+      input.maxLength = 120;
+      this._catAutocomplete(input, () => known);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          this._edAddCats(input.value, true);
+        } else if (e.key === "Backspace" && !input.value && ed.cats.length) {
+          // Leeres Feld + Rücktaste entfernt die letzte Kategorie
+          ed.cats = ed.cats.slice(0, -1);
+          this._edRenderCats();
+          const inp = box.querySelector(".cat-input");
+          if (inp) inp.focus();
+        }
+      });
+      box.appendChild(input);
+      if (known.length) {
+        box.appendChild(this._catSelect(known, (v) => this._edAddCats(v, true)));
+      }
+      if (hadFocus) input.focus();
+    }
+  }
+
+  _edAddCats(raw, focus = false) {
+    const ed = this._ed;
+    const parts = String(raw || "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((x) => this._canonicalCat(x));
+    if (!parts.length) return false;
+    const next = easyCleanCats([...ed.cats, ...parts]);
+    const changed = next.length !== ed.cats.length;
+    ed.cats = next;
+    this._edRenderCats();
+    if (focus) {
+      const inp = ed.catsBox.querySelector(".cat-input");
+      if (inp) inp.focus();
+    }
+    return changed;
+  }
+
+  _edDirty() {
+    const ed = this._ed;
+    const typed = ed.catsBox.querySelector(".cat-input");
+    return (
+      ed.ta.value !== ed.orig ||
+      JSON.stringify(ed.cats) !== JSON.stringify(ed.origCats) ||
+      !!(typed && typed.value.trim())
+    );
+  }
+
   _requestCloseEditor() {
     const ed = this._ed;
     if (!ed || !ed.note) return;
-    if (ed.ta.value !== ed.orig) {
+    if (this._edDirty()) {
       ed.confirm.hidden = false;
       const keep = ed.confirm.querySelector("ha-button");
       if (keep && keep.focus) keep.focus();
@@ -4776,20 +5866,38 @@ class EasyNotesCard extends HTMLElement {
     const ed = this._ed;
     if (!ed) return;
     const note = ed.note;
+    const fresh = ed.fresh;
     ed.note = null;
+    ed.fresh = false;
     ed.confirm.hidden = true;
     if (typeof ed.dlg.close === "function" && ed.dlg.open) ed.dlg.close();
     else ed.dlg.removeAttribute("open");
-    // Fokus zurück zum Editor-Button der Notiz
+    if (fresh && note && !note.text.trim() && this._notes.includes(note)) {
+      this._notes = this._notes.filter((n) => n !== note);
+      this._scheduleSave();
+      this._render();
+      return;
+    }
+    // Fokus zurück zum Editor-Button der Notiz bzw. zur Karte im Board
     const rec = note && this._noteEls.get(String(note.id));
     const btn = rec && rec.el.querySelector(".editor-btn");
     if (btn && btn.focus) btn.focus();
+    else this._focusBoardCard(note);
+  }
+
+  _focusBoardCard(note) {
+    const cards = note && this._boardEls && this._boardEls.get(String(note.id));
+    if (cards && cards[0] && cards[0].el.isConnected) cards[0].el.focus({ preventScroll: true });
   }
 
   _saveEditor() {
     const ed = this._ed;
     if (!ed || !ed.note) return;
     const text = ed.ta.value;
+    // Noch nicht übernommene Eingabe im Kategorie-Feld mitnehmen
+    const typed = ed.catsBox.querySelector(".cat-input");
+    if (typed && typed.value.trim()) this._edAddCats(typed.value);
+    const cats = easyCleanCats(ed.cats);
     let note = this._notes.find((n) => String(n.id) === String(ed.note.id));
     if (!note) {
       // Notiz wurde inzwischen gelöscht: Inhalt nicht verlieren
@@ -4800,13 +5908,20 @@ class EasyNotesCard extends HTMLElement {
       note.text = text;
       note.updated = new Date().toISOString();
     }
+    const catsChanged = JSON.stringify(cats) !== JSON.stringify(note.categories || []);
+    if (catsChanged) {
+      this._rememberCats(cats); // vor dem Zuweisen, sonst gelten sie schon als bekannt
+      note.categories = cats;
+    }
     this._closeEditor();
-    const rec = this._view === "notes" && this._noteEls.get(String(note.id));
+    // Neue Kategorien betreffen Filterleiste und Board, dann komplett neu zeichnen
+    const rec = !catsChanged && this._view === "notes" && this._noteEls.get(String(note.id));
     if (rec) {
       rec.renderView();
       rec.refresh();
     } else {
       this._render();
+      this._focusBoardCard(note);
     }
     this._scheduleSave();
     this._flush();
@@ -5017,6 +6132,7 @@ class EasyNotesCard extends HTMLElement {
       if (n.remind_at) data.remind_at = n.remind_at;
       if (n.updated) data.updated = n.updated;
       if (n.time) data.time = n.time;
+      if (Array.isArray(n.visible_to)) data.visible_to = n.visible_to;
       // "--" ist in HTML-Kommentaren nicht erlaubt, daher maskieren
       const json = JSON.stringify(data).replace(/--/g, "-\\u002d");
       out.push(`<!-- easy-note:start ${json} -->`, ...lines, "<!-- easy-note:end -->", "");
@@ -5286,6 +6402,7 @@ class EasyNotesCard extends HTMLElement {
     fm.push(`color: ${q(n.color || "blue")}`);
     if (n.remind_at) fm.push(`reminder: ${q(n.remind_at)}`);
     if (n.updated) fm.push(`updated: ${q(n.updated)}`);
+    if (Array.isArray(n.visible_to)) fm.push(`visible_to: [${n.visible_to.map(q).join(", ")}]`);
     if (position) fm.push(`position: ${position}`);
     fm.push("---");
     return `${fm.join("\n")}\n${n.text}\n`;
@@ -5365,6 +6482,9 @@ class EasyNotesCard extends HTMLElement {
       if (rec && rec.due !== due) rec.refresh();
       const row = this._rowEls && this._rowEls.get(String(n.id));
       if (row && row.classList.contains("due") !== due) this._fillRow(row, n);
+      for (const bc of (this._boardEls && this._boardEls.get(String(n.id))) || []) {
+        if (bc.el.classList.contains("due") !== due) bc.fill();
+      }
       if (due && this._config.sidebar_notification && !n.notified) this._notify(n);
     }
     if (this._graph && this._view === "graph") this._graph.refreshStates();
@@ -5423,12 +6543,17 @@ class EasyNotesCard extends HTMLElement {
         // Während des Abrufs wurde bearbeitet: Ergebnis verwerfen
       } else {
         const v = res && res.value;
-        const notes = v && Array.isArray(v.notes) ? v.notes.map((n) => this._normalize(n)) : [];
-        const changed = !this._loaded || JSON.stringify(notes) !== JSON.stringify(this._notes);
+        const notes = this._filterVisible(v && Array.isArray(v.notes) ? v.notes.map((n) => this._normalize(n)) : []);
+        const catList = easyCleanCatList(v && v.categories);
+        const changed =
+          !this._loaded ||
+          JSON.stringify(notes) !== JSON.stringify(this._notes) ||
+          JSON.stringify(catList) !== JSON.stringify(this._catList);
         this._loaded = true;
         this._setError(null);
         if (changed) {
           this._notes = notes;
+          this._catList = catList;
           this._render();
         }
         if (mode === "shared" && !notes.length && !silent) this._offerMigrate(key);
@@ -5458,7 +6583,7 @@ class EasyNotesCard extends HTMLElement {
     const key = this._storageKey;
     const hass = this._hass;
     const type = this._storageMode === "shared" ? "frontend/set_system_data" : "frontend/set_user_data";
-    const value = { notes: this._notes.map((n) => ({ ...n })) };
+    const value = { notes: this._notes.map((n) => ({ ...n })), categories: [...this._catList] };
     // Speichervorgänge nacheinander ausführen, damit sie nicht überholen
     this._saveChain = this._saveChain
       .then(() => hass.callWS({ type, key, value }))
@@ -5484,10 +6609,12 @@ class EasyNotesCard extends HTMLElement {
     this._migrateDone = this._migrateDone || new Set();
     if (this._migrateDone.has(key)) return;
     let mine = [];
+    let mineCats = [];
     try {
       const res = await this._hass.callWS({ type: "frontend/get_user_data", key });
       const v = res && res.value;
       mine = v && Array.isArray(v.notes) ? v.notes.map((n) => this._normalize(n)) : [];
+      mineCats = easyCleanCatList(v && v.categories);
     } catch (_) {
       return;
     }
@@ -5508,6 +6635,7 @@ class EasyNotesCard extends HTMLElement {
       this._hideMigrate();
       if (this._notes.length) return; // inzwischen befüllt: nichts überschreiben
       this._notes = mine;
+      if (!this._catList.length) this._catList = mineCats;
       this._render();
       this._scheduleSave();
       this._flush();
