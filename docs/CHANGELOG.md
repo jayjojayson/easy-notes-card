@@ -2,6 +2,24 @@
 
 [🇬🇧 English version](changelog_eng.md)
 
+## v1.0.9
+
+### Behoben
+- **Keine überschriebenen Notizen mehr bei mehreren Geräten/Browsern:** Bisher schrieb eine Card beim Speichern ihren kompletten Stand in den Speicher. War die Card auf einem anderen Gerät, in einem anderen Browser-Tab oder auf einem Wandtablet schon länger offen, konnte eine Änderung dort Notizen überschreiben, die inzwischen woanders angelegt oder geändert wurden. Jetzt liest die Card vor jedem Speichern den aktuellen Stand und führt ihn zusammen: Neue und geänderte Notizen anderer Geräte bleiben erhalten, Löschungen werden übernommen, bei gleichzeitiger Änderung derselben Notiz gewinnt die zuletzt gespeicherte. Schlägt das Lesen fehl, wird nicht geschrieben.
+- **Aktueller Stand auch bei lange offenen Dashboards:** Die Card lädt jetzt etwa jede Minute still nach und auch, wenn man zur Dashboard-Ansicht zurückkehrt (bisher nur beim Wechsel zurück in den Browser-Tab).
+- **Übernahme persönlicher Notizen:** Bisher wurde die Übernahme nur angeboten, wenn der gemeinsame Speicher komplett leer war. Wer dort schon (Test-)Notizen hatte, bekam keinen Hinweis, und ältere persönliche Notizen wirkten verschwunden. Jetzt bietet die Card „Fehlende übernehmen“ an, sobald persönliche Notizen im gemeinsamen Speicher fehlen. „Nicht mehr anzeigen“ wird pro Benutzer gemerkt. Benutzer ohne Admin-Rechte sehen einen Hinweis, dass ihre persönlichen Notizen nicht verloren sind.
+- **Export enthält jetzt die festgelegten Kategorien:** Markdown- und ZIP-Export schreiben die Board-Kategorien samt Reihenfolge mit (im ZIP als `_easy-notes-categories.md`), der Import stellt sie wieder her. Bisher fehlten nach einem Wiederherstellen leere Kategorien und die Reihenfolge der Zeilen.
+- **Seitenleisten-Benachrichtigung bei Benutzern ohne Admin-Rechte:** Eine weggeklickte Benachrichtigung kam bei jedem Öffnen bzw. Nachladen wieder, weil diese Benutzer „benachrichtigt“ nicht speichern können. Das merkt sich jetzt der Browser.
+- **Board:** Die seitliche Scroll-Position der Zeilen bleibt beim Neuzeichnen erhalten (z. B. nach Änderungen oder Nachladen).
+- **Kein Neuzeichnen mitten in einer Eingabe:** Auch das Laden der Benutzerliste (Sichtbarkeit pro Notiz) und Ziehen/Zoomen in der Netzansicht unterbrechen nichts mehr.
+- **Aufgeräumt:** ungenutzter Code entfernt, Netzansicht merkt sich keine Positionen gelöschter Notizen mehr.
+
+### Hinzugefügt
+- **Anzahl der Notizen** (`show_count`, Editor: „Anzahl der Notizen anzeigen“): Zeigt die Summe aller Notizen als Badge neben dem Titel. Bei Suche oder Kategorie-Filter erscheint „gefunden / alle“.
+
+### Hinweise
+- Persönliche Notizen aus v1.0.6 wurden nie gelöscht. Sie liegen weiterhin im persönlichen Speicher und werden ab v1.0.9 zur Übernahme angeboten (oder mit `storage: user` angezeigt).
+
 ## v1.0.8
 
 ### Hinzugefügt

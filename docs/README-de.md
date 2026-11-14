@@ -47,7 +47,7 @@ Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 - **Verpasste Erinnerungen** werden beim nächsten Öffnen des Dashboards sofort angezeigt.
 
 **Sichern**
-- **Export** aller Notizen als eine Markdown-Datei, als einzelne Markdown-Dateien in einer ZIP oder als Markdown in die Zwischenablage.
+- **Export** aller Notizen als eine Markdown-Datei, als einzelne Markdown-Dateien in einer ZIP oder als Markdown in die Zwischenablage. Die Board-Kategorien samt Reihenfolge sind enthalten.
 - **Import** von Markdown-Dateien, ZIP-Archiven oder ganzen Ordnern – Doppelte werden übersprungen, geänderte Notizen aktualisiert.
 
 **Bedienung**
@@ -108,6 +108,7 @@ Alles andere ist optional.
 | Startansicht | `default_view` | Mit der Notizansicht (`notes`), der Board-Ansicht (`board`) oder der Netzansicht (`graph`) starten. |
 | Suche | `show_search` | Suchfeld anzeigen. |
 | Kategorien | `show_categories` | Kategorie-Leiste über den Notizen anzeigen. |
+| Anzahl der Notizen | `show_count` | Summe aller Notizen neben dem Titel anzeigen (bei Suche oder Filter: gefunden / alle). |
 | Anzahl sichtbarer Notizen | `max_notes` | `0` zeigt alle Notizen; sonst nur diese Anzahl, der Rest steckt hinter „Weitere anzeigen“. |
 | Notizfarbe | `note_color` | Farbe neuer Notizen: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green` oder `grey`. |
 | Erinnerungen | `reminders` | Erinnerungen pro Notiz aktivieren. |
@@ -124,6 +125,7 @@ storage_key: easy_notes_data   # gleicher Schlüssel = gleiche Notizen
 default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
+show_count: false              # Anzahl der Notizen neben dem Titel
 max_notes: 0                   # 0 = alle Notizen
 note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
 reminders: true

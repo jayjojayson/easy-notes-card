@@ -2,6 +2,24 @@
 
 [🇩🇪 Deutsche Version](CHANGELOG.md)
 
+## v1.0.9
+
+### Fixed
+- **No more overwritten notes with several devices/browsers:** so far a card wrote its complete state to the storage when saving. If the card had been open for a while on another device, in another browser tab or on a wall tablet, a change there could overwrite notes that had been created or changed elsewhere in the meantime. Now the card reads the current state before every save and merges it: new and changed notes from other devices are kept, deletions are applied, and if the same note was changed on two devices, the last save wins. If reading fails, nothing is written.
+- **Up to date on dashboards that stay open:** the card now reloads quietly about every minute and when you return to the dashboard view (previously only when switching back to the browser tab).
+- **Copying personal notes:** so far the card only offered to copy personal notes when the shared storage was completely empty. If there were already (test) notes in it, no hint appeared and older personal notes seemed to be gone. Now the card offers *Copy missing notes* as soon as personal notes are missing in the shared storage. *Don't show again* is remembered per user. Users without admin rights see a hint that their personal notes are not lost.
+- **Export now includes the predefined categories:** Markdown and ZIP export include the board categories and their order (in the ZIP as `_easy-notes-categories.md`), and import restores them. So far empty categories and the row order were missing after a restore.
+- **Sidebar notification for users without admin rights:** a dismissed notification came back on every page load or reload, because these users cannot save "notified". The browser now remembers it.
+- **Board:** the horizontal scroll position of the rows is kept when the board is redrawn (e.g. after changes or a reload).
+- **No redraw while typing:** loading the user list (visibility per note) and dragging/zooming in the graph view no longer interrupt you.
+- **Cleanup:** unused code removed, the graph view no longer keeps positions of deleted notes.
+
+### Added
+- **Number of notes** (`show_count`, editor: "Show number of notes"): shows the total number of notes as a badge next to the title. While searching or filtering by category it shows "found / all".
+
+### Notes
+- Personal notes from v1.0.6 were never deleted. They are still in the personal storage and are offered for copying from v1.0.9 on (or shown with `storage: user`).
+
 ## v1.0.8
 
 ### Added

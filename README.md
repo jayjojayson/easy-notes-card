@@ -49,7 +49,7 @@ If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 - **Missed reminders** are shown immediately when you open the dashboard again.
 
 **Backup**
-- **Export** all notes as one Markdown file, as separate Markdown files in a ZIP, or copy them to the clipboard as Markdown.
+- **Export** all notes as one Markdown file, as separate Markdown files in a ZIP, or copy them to the clipboard as Markdown. The board categories and their order are included.
 - **Import** Markdown files, ZIP archives or whole folders — duplicates are skipped, changed notes are updated.
 
 **Operation**
@@ -110,6 +110,7 @@ Everything else is optional.
 | Default view | `default_view` | Start with the notes view (`notes`), the board view (`board`) or the graph view (`graph`). |
 | Search | `show_search` | Show the search field. |
 | Categories | `show_categories` | Show the category bar above the notes. |
+| Number of notes | `show_count` | Show the total number of notes next to the title (while searching or filtering: found / all). |
 | Number of visible notes | `max_notes` | `0` shows all notes; otherwise only this many are shown, the rest is behind a "Show more" button. |
 | Note color | `note_color` | Color of new notes: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green` or `grey`. |
 | Reminders | `reminders` | Enable reminders for each note. |
@@ -126,6 +127,7 @@ storage_key: easy_notes_data   # same key = same notes
 default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
+show_count: false              # number of notes next to the title
 max_notes: 0                   # 0 = all notes
 note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
 reminders: true

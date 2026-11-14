@@ -1,6 +1,6 @@
 /*
  * Easy Notes – Notiz-Card für Home Assistant
- * Version 1.0.8
+ * Version 1.0.9
  *
  * Schnelle Notizen mit Markdown, Farben, Kategorien, Erinnerungen, Verschieben per Drag & Drop,
  * Editor mit Formatierungsleiste, Board-Ansicht (eine Zeile pro Kategorie, Notizen per Drag & Drop
@@ -27,6 +27,7 @@
  *   show_search: true
  *   max_notes: 0                   # 0 = alle Notizen, sonst Anzahl sichtbarer Notizen
  *   show_categories: true          # Kategorie-Leiste über den Notizen
+ *   show_count: false              # Anzahl der Notizen neben dem Titel
  *   note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
  *   reminders: true                # Erinnerungen pro Notiz
  *   sidebar_notification: false    # fällige Erinnerung zusätzlich als HA-Benachrichtigung (Seitenleiste)
@@ -41,7 +42,7 @@
  * Öffnen werden verpasste Erinnerungen sofort angezeigt.
  */
 
-const EASY_NOTES_VERSION = "1.0.8";
+const EASY_NOTES_VERSION = "1.0.9";
 
 // MDI-Pfade (@mdi/js)
 const mdiPlus = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
@@ -152,6 +153,7 @@ const EASY_DEFAULTS = {
   default_view: "notes",
   show_search: true,
   show_categories: true,
+  show_count: false,
   max_notes: 0,
   note_color: "random",
   reminders: true,
@@ -213,6 +215,12 @@ const EASY_I18N = {
     migrateBtn: "In den gemeinsamen Speicher übernehmen",
     migrateDismiss: "Leer starten",
     migrated: "{n} übernommen. Deine persönlichen Notizen bleiben zusätzlich erhalten.",
+    countFiltered: "{n} von {t} Notizen",
+    migrateTextSome: "{n} aus deinem persönlichen Speicher fehlen im gemeinsamen Speicher.",
+    migrateBtnSome: "Fehlende übernehmen",
+    migrateHide: "Nicht mehr anzeigen",
+    migrateRo:
+      "Du hast {n} in deinem persönlichen Speicher. Sie sind nicht verloren: Sie erscheinen, wenn die Card auf „Pro Benutzer“ (storage: user) steht.",
     visibility: "Sichtbar für",
     visAll: "Alle Benutzer",
     visOnlyAdmins: "Nur Administratoren",
@@ -365,6 +373,12 @@ const EASY_I18N = {
     migrateBtn: "Copy to shared storage",
     migrateDismiss: "Start empty",
     migrated: "Copied {n}. Your personal notes are kept as well.",
+    countFiltered: "{n} of {t} notes",
+    migrateTextSome: "{n} from your personal storage are missing in the shared storage.",
+    migrateBtnSome: "Copy missing notes",
+    migrateHide: "Don't show again",
+    migrateRo:
+      "You have {n} in your personal storage. They are not lost: they show up when the card is set to “Per user” (storage: user).",
     visibility: "Visible to",
     visAll: "All users",
     visOnlyAdmins: "Administrators only",
@@ -522,6 +536,105 @@ function easyCleanCatList(list) {
     if (out.length >= EASY_MAX_CAT_LIST) break;
   }
   return out;
+}
+
+// ---------- Zusammenführen (mehrere Geräte / Browser) ----------
+// Vergleichbarer Text einer Notiz: feste Schlüsselreihenfolge, leere Werte weg
+function easyNoteSig(n) {
+  const out = {};
+  for (const k of Object.keys(n || {}).sort()) {
+    const v = n[k];
+    if (v === undefined || v === null) continue;
+    out[k] = v;
+  }
+  return JSON.stringify(out);
+}
+
+function easyClone(list) {
+  return (list || []).map((n) => JSON.parse(JSON.stringify(n)));
+}
+
+// Reihenfolge zusammensetzen: Gerüst-Liste, fehlende Einträge hinter ihren Vorgänger
+// aus ihrer eigenen Liste einsortieren (sonst an den Anfang)
+function easyMergeOrder(skeleton, others, otherOrder) {
+  const out = [...skeleton];
+  for (const id of otherOrder) {
+    if (!others.has(id) || out.includes(id)) continue;
+    const idx = otherOrder.indexOf(id);
+    let pos = 0;
+    for (let i = idx - 1; i >= 0; i--) {
+      const p = out.indexOf(otherOrder[i]);
+      if (p >= 0) {
+        pos = p + 1;
+        break;
+      }
+    }
+    out.splice(pos, 0, id);
+  }
+  return out;
+}
+
+// 3-Wege-Zusammenführung: base = zuletzt geladener/gespeicherter Stand,
+// local = Stand in dieser Card, remote = aktueller Stand im Speicher.
+// Lokale Änderungen gewinnen, Änderungen anderer Geräte bleiben erhalten.
+function easyMergeNotes(base, local, remote) {
+  const id = (n) => String(n.id);
+  const B = new Map(base.map((n) => [id(n), n]));
+  const L = new Map(local.map((n) => [id(n), n]));
+  const R = new Map(remote.map((n) => [id(n), n]));
+  const pick = new Map();
+  for (const [k, n] of L) {
+    const b = B.get(k);
+    if (!b) {
+      pick.set(k, n); // hier neu angelegt
+    } else if (!R.has(k)) {
+      // Woanders gelöscht: nur behalten, wenn hier inzwischen geändert
+      if (easyNoteSig(n) !== easyNoteSig(b)) pick.set(k, n);
+    } else if (easyNoteSig(n) === easyNoteSig(b)) {
+      pick.set(k, R.get(k)); // hier unverändert: Stand des anderen Geräts übernehmen
+    } else {
+      pick.set(k, n); // hier geändert: lokaler Stand gewinnt
+    }
+  }
+  // Woanders neu angelegte Notizen
+  const added = new Set();
+  for (const [k, n] of R) {
+    if (!L.has(k) && !B.has(k)) {
+      pick.set(k, n);
+      added.add(k);
+    }
+  }
+  // Reihenfolge: hat diese Card nicht umsortiert, gilt die Reihenfolge des Speichers
+  const common = (list) => list.map(id).filter((k) => B.has(k) && L.has(k));
+  const localMoved = common(local).join("\n") !== common(base).filter((k) => L.has(k)).join("\n");
+  const localOrder = local.map(id).filter((k) => pick.has(k));
+  const remoteOrder = remote.map(id).filter((k) => pick.has(k));
+  let order;
+  if (localMoved) {
+    order = easyMergeOrder(localOrder, added, remote.map(id));
+  } else {
+    // Gerüst = Reihenfolge im Speicher; hier neue (oder woanders gelöschte, hier geänderte)
+    // Notizen an ihre Stelle aus der lokalen Liste
+    const localNew = new Set(localOrder.filter((k) => !B.has(k)));
+    const skeleton = remoteOrder.filter((k) => !localNew.has(k));
+    const rest = new Set(localOrder.filter((k) => !skeleton.includes(k)));
+    order = easyMergeOrder(skeleton, rest, local.map(id));
+  }
+  return order.map((k) => pick.get(k));
+}
+
+// Festgelegte Kategorien zusammenführen (Groß-/Kleinschreibung egal)
+function easyMergeCatList(base, local, remote) {
+  const k = (c) => c.toLowerCase();
+  const same = (a, b) => a.map(k).join("\n") === b.map(k).join("\n");
+  if (same(local, base)) return [...remote];
+  const baseSet = new Set(base.map(k));
+  const remoteSet = new Set(remote.map(k));
+  const localSet = new Set(local.map(k));
+  // Lokale Liste, ohne woanders entfernte (falls hier nicht neu), plus woanders neue
+  const out = local.filter((c) => !baseSet.has(k(c)) || remoteSet.has(k(c)));
+  for (const c of remote) if (!baseSet.has(k(c)) && !localSet.has(k(c))) out.push(c);
+  return easyCleanCatList(out);
 }
 
 // Markdown-Zeichen für kurze Beschriftungen entfernen
@@ -830,7 +943,7 @@ function easyLink(url) {
 function easyMdInline(text, parent) {
   // 1 Escape, 2/3 Code, 4/5 Link, 6/7 Fett, 8 Durchgestrichen, 9/10 Kursiv, 11 URL
   const re =
-    /\\([\\`*_{}\[\]()#+\-.!~|>])|(`+)([^`]|[^`][\s\S]*?[^`])\2(?!`)|\[([^\]\n]+)\]\(([^)\s]+)\)|(\*\*|__)(?=\S)([\s\S]*?\S)\6|~~(?=\S)([\s\S]*?\S)~~|(\*|_)(?=\S)([\s\S]*?\S)\9|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/g;
+    /\\([\\`*_{}[\]()#+\-.!~|>])|(`+)([^`]|[^`][\s\S]*?[^`])\2(?!`)|\[([^\]\n]+)\]\(([^)\s]+)\)|(\*\*|__)(?=\S)([\s\S]*?\S)\6|~~(?=\S)([\s\S]*?\S)~~|(\*|_)(?=\S)([\s\S]*?\S)\9|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/g;
   const push = (t) => {
     if (t) parent.appendChild(document.createTextNode(t));
   };
@@ -1137,6 +1250,7 @@ const EASY_EDITOR_I18N = {
     default_view: "Startansicht",
     show_search: "Suchfeld anzeigen",
     show_categories: "Kategorie-Leiste anzeigen",
+    show_count: "Anzahl der Notizen anzeigen",
     show_all_notes: "Alle Notizen anzeigen",
     max_notes: "Anzahl sichtbarer Notizen",
     note_color: "Farbe neuer Notizen",
@@ -1156,6 +1270,7 @@ const EASY_EDITOR_I18N = {
     helper_show_all_notes:
       "Aus: Die Card zeigt nur die ersten Notizen. Die übrigen erreichst du über „weitere anzeigen“, die Suche, die Kategorien und die Netzansicht.",
     helper_max_notes: "Es zählen die ersten Notizen in deiner Reihenfolge. Neue Notizen stehen oben.",
+    helper_show_count: "Zeigt die Summe aller Notizen neben dem Titel. Bei Suche oder Kategorie-Filter: gefundene / alle.",
   },
   en: {
     title: "Title",
@@ -1171,6 +1286,7 @@ const EASY_EDITOR_I18N = {
     default_view: "Start view",
     show_search: "Show search field",
     show_categories: "Show category bar",
+    show_count: "Show number of notes",
     show_all_notes: "Show all notes",
     max_notes: "Number of visible notes",
     note_color: "Color of new notes",
@@ -1189,6 +1305,7 @@ const EASY_EDITOR_I18N = {
     helper_show_all_notes:
       "Off: the card only shows the first notes. Reach the others with “show more”, search, categories and the graph view.",
     helper_max_notes: "Counts the first notes in your order. New notes appear at the top.",
+    helper_show_count: "Shows the total number of notes next to the title. While searching or filtering: found / all.",
   },
 };
 
@@ -1250,6 +1367,7 @@ class EasyNotesCardEditor extends HTMLElement {
       },
       { name: "show_search", selector: { boolean: {} } },
       { name: "show_categories", selector: { boolean: {} } },
+      { name: "show_count", selector: { boolean: {} } },
       ...limitFields,
       {
         name: "note_color",
@@ -1396,13 +1514,6 @@ class EasyNotesGraph {
     }
   }
 
-  destroy() {
-    this.alive = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = null;
-    if (this.ro) this.ro.disconnect();
-  }
-
   pause() {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
@@ -1415,7 +1526,6 @@ class EasyNotesGraph {
 
   // ---------- Daten ----------
   setData(notes) {
-    const card = this.card;
     for (const n of this.nodes) this.pos.set(n.id, { x: n.x, y: n.y });
 
     const prevKey = this.structureKey;
@@ -1484,6 +1594,7 @@ class EasyNotesGraph {
     this.nodes = nodes;
     this.links = links;
     this.byId = byId;
+    for (const id of [...this.pos.keys()]) if (!byId.has(id)) this.pos.delete(id);
     this.structureKey = nodes.map((n) => n.id).join("|") + "#" + links.map((l) => l.s.id + ">" + l.t.id).join("|");
 
     if (this.selected && !byId.has(this.selected)) this.selected = null;
@@ -2076,6 +2187,7 @@ class EasyNotesCard extends HTMLElement {
     this._loading = false;
     this._dirty = false;
     this._saveTimer = null;
+    this._saving = 0; // ausstehende Speichervorgänge
     this._saveChain = Promise.resolve();
     this._noteEls = new Map();
     this._dragging = false;
@@ -2123,8 +2235,10 @@ class EasyNotesCard extends HTMLElement {
       this._ro.observe(this);
     }
     clearInterval(this._tickTimer);
-    this._tickTimer = setInterval(() => this._tick(), 10000);
+    this._tickTimer = setInterval(() => this._heartbeat(), 10000);
     if (this._graph && this._view === "graph") this._graph.kick();
+    // Zurück auf der Dashboard-Ansicht: Änderungen anderer Geräte holen
+    if (this._loaded) this._load({ silent: true });
   }
 
   disconnectedCallback() {
@@ -2165,7 +2279,7 @@ class EasyNotesCard extends HTMLElement {
     ) {
       throw new Error(`note_color muss random oder eines von ${EASY_COLOR_KEYS.join(", ")} sein`);
     }
-    for (const k of ["show_search", "show_categories", "reminders", "sidebar_notification", "note_visibility"]) {
+    for (const k of ["show_search", "show_categories", "show_count", "reminders", "sidebar_notification", "note_visibility"]) {
       if (config[k] !== undefined && typeof config[k] !== "boolean") {
         throw new Error(`${k} muss true oder false sein`);
       }
@@ -2200,7 +2314,7 @@ class EasyNotesCard extends HTMLElement {
     this._applyConfig();
 
     const newMode = this._config.storage;
-    const visChanged = this._configured && oldVis !== this._config.note_visibility;
+    const visChanged = !first && oldVis !== this._config.note_visibility;
     if (newKey !== oldKey || newMode !== oldMode || (visChanged && this._readOnly())) {
       const flushing = this._flush(); // speichert noch am alten Ort
       this._storageKey = newKey;
@@ -2208,6 +2322,7 @@ class EasyNotesCard extends HTMLElement {
       this._hideMigrate();
       this._loaded = false;
       this._notes = [];
+      this._base = null;
       this._catFilter = null;
       this._catList = [];
       this._render();
@@ -2384,7 +2499,7 @@ class EasyNotesCard extends HTMLElement {
       })
       .finally(() => {
         this._usersLoading = false;
-        if (this._loaded) this._render();
+        if (this._loaded) this._renderSoon();
       });
   }
 
@@ -2604,8 +2719,35 @@ class EasyNotesCard extends HTMLElement {
         }
         .migrate[hidden] { display: none; }
         .migrate-text { flex: 1 1 220px; }
-        .title {
+        .title-wrap {
           flex: 1 1 120px;
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .count {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 28px;
+          height: 26px;
+          box-sizing: border-box;
+          padding: 0 9px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+          color: var(--primary-color);
+          font-size: 13px;
+          font-weight: 600;
+          font-variant-numeric: tabular-nums;
+          line-height: 1;
+          white-space: nowrap;
+        }
+        .count[hidden] { display: none; }
+        .count .count-all { opacity: 0.65; font-weight: 500; }
+        .title {
+          flex: 0 1 auto;
           min-width: 0;
           margin: 0;
           font-size: 20px;
@@ -3742,7 +3884,10 @@ class EasyNotesCard extends HTMLElement {
       <ha-card>
         <div class="content">
           <div class="header">
-            <h2 class="title" id="title"></h2>
+            <div class="title-wrap" id="title-wrap">
+              <h2 class="title" id="title"></h2>
+              <span class="count" id="count" hidden></span>
+            </div>
             <span class="ro" id="ro" hidden><ha-svg-icon id="ro-icon"></ha-svg-icon><span id="ro-text"></span></span>
             <div class="controls">
             <div class="seg" id="seg-layout" role="group" hidden>
@@ -3794,6 +3939,8 @@ class EasyNotesCard extends HTMLElement {
     `;
     const $ = (id) => this.shadowRoot.getElementById(id);
     this._elTitle = $("title");
+    this._elTitleWrap = $("title-wrap");
+    this._elCount = $("count");
     this._elAddLabel = $("add-label");
     this._elAlert = $("alert");
     this._elMsg = $("msg");
@@ -3916,6 +4063,7 @@ class EasyNotesCard extends HTMLElement {
     const c = this._config;
     this._elTitle.textContent = c.title !== undefined ? c.title : this._t("title");
     this._elTitle.style.display = this._elTitle.textContent ? "" : "none";
+    this._updateCount();
     this._elAddLabel.textContent = this._t("add");
     this._elSearch.placeholder = this._t("search");
     this._elSearch.setAttribute("aria-label", this._t("search"));
@@ -3984,7 +4132,37 @@ class EasyNotesCard extends HTMLElement {
     }
   }
 
+  // Anzahl der Notizen neben dem Titel (show_count). Bei Suche/Filter: gefunden / alle
+  _updateCount() {
+    const el = this._elCount;
+    if (!el) return;
+    const on = this._config.show_count === true && this._loaded;
+    el.hidden = !on;
+    this._elTitleWrap.style.display = on || this._elTitle.textContent ? "" : "none";
+    if (!on) return;
+    const total = this._notes.length;
+    let shown = total;
+    if (this._view === "notes") shown = this._notes.filter((n) => this._matches(n)).length;
+    else if (this._view === "board") shown = this._notes.filter((n) => this._matchesQuery(n)).length;
+    else if (this._query.trim()) shown = this._notes.filter((n) => this._matchesQuery(n)).length;
+    el.replaceChildren();
+    let label;
+    if (shown !== total) {
+      const all = document.createElement("span");
+      all.className = "count-all";
+      all.textContent = `\u202f/\u202f${total}`;
+      el.append(document.createTextNode(String(shown)), all);
+      label = this._t("countFiltered").replace("{n}", shown).replace("{t}", total);
+    } else {
+      el.textContent = String(total);
+      label = this._count(total, "nNotes");
+    }
+    el.title = label;
+    el.setAttribute("aria-label", label);
+  }
+
   _updateBadge() {
+    this._updateCount();
     const n = this._remindersOn() ? this._notes.filter((x) => this._isDue(x)).length : 0;
     if (n > 0) {
       const label = this._t("dueBadge").replace("{n}", n);
@@ -4373,7 +4551,6 @@ class EasyNotesCard extends HTMLElement {
       track.appendChild(empty);
       lane.append(head, track);
       board.appendChild(lane);
-      if (keepLeft.has(lane.dataset.key)) track.scrollLeft = keepLeft.get(lane.dataset.key);
     });
 
     // Neue Kategorie anlegen (auch ohne Notiz)
@@ -4415,6 +4592,10 @@ class EasyNotesCard extends HTMLElement {
 
     list.appendChild(board);
     list.scrollTop = keepTop;
+    // Seitliche Scroll-Position der Zeilen erst im Dokument setzen (vorher wirkt sie nicht)
+    for (const lane of board.querySelectorAll(".bl")) {
+      if (keepLeft.has(lane.dataset.key)) lane.querySelector(".bl-track").scrollLeft = keepLeft.get(lane.dataset.key);
+    }
     this._tick();
     this._updateListFade();
   }
@@ -6110,6 +6291,8 @@ class EasyNotesCard extends HTMLElement {
     });
     out.push(`> ${t("mdExportedAt")} ${stamp} (${this._count(this._notes.length, "nNotes")}).`);
     out.push(`> ${t("mdHint")}`, "");
+    // Festgelegte Kategorien (Board-Zeilen und Reihenfolge) für den Import mitschreiben
+    if (this._catList.length) out.push(this._catListComment(), "");
     for (const n of this._notes) {
       out.push("---", "");
       const meta = [];
@@ -6140,14 +6323,30 @@ class EasyNotesCard extends HTMLElement {
     return out.join("\n");
   }
 
+  // Kommentarzeile mit den festgelegten Kategorien ("--" ist in HTML-Kommentaren nicht erlaubt)
+  _catListComment() {
+    return `<!-- easy-notes:categories ${JSON.stringify(this._catList).replace(/--/g, "-\\u002d")} -->`;
+  }
+
   _parseMarkdown(text, path = "") {
     const src = String(text || "").replace(/^﻿/, "").replace(/\r\n?/g, "\n");
     const lines = src.split("\n");
     const START = /^<!-- easy-note:start (\{.*\}) -->\s*$/;
     const END = /^<!-- easy-note:end -->\s*$/;
+    const CATS = /^<!-- easy-notes:categories (\[.*\]) -->\s*$/;
     const notes = [];
     let structured = false;
+    let categories = null;
     for (let i = 0; i < lines.length; i++) {
+      const c = CATS.exec(lines[i]);
+      if (c) {
+        try {
+          categories = easyCleanCatList(JSON.parse(c[1]));
+        } catch (_) {
+          /* beschädigte Zeile: ignorieren */
+        }
+        continue;
+      }
       const m = START.exec(lines[i]);
       if (!m) continue;
       structured = true;
@@ -6172,11 +6371,14 @@ class EasyNotesCard extends HTMLElement {
         }
       }
       if (endIdx < 0) continue;
-      const { lines: _l, ...rest } = meta;
+      const rest = { ...meta };
+      delete rest.lines;
       notes.push({ ...rest, text: lines.slice(i + 1, endIdx).join("\n") });
       i = endIdx;
     }
-    if (structured) return { notes, structured };
+    if (structured) return { notes, structured, categories };
+    // Nur die Kategorienliste (Datei aus dem ZIP-Export): keine Notiz daraus machen
+    if (categories) return { notes: [], structured: true, categories };
 
     // Normale Markdown-Datei (z. B. Wiki-Seite): die ganze Datei wird eine Notiz
     const note = easyNoteFromFile(src, path);
@@ -6221,10 +6423,6 @@ class EasyNotesCard extends HTMLElement {
     return { added, updated, skipped };
   }
 
-  async _importFile(file) {
-    return this._importFiles([file]);
-  }
-
   // Liest eine oder mehrere Dateien (auch aus einem Ordner) und importiert sie in einem Rutsch
   async _importFiles(list) {
     if (!this._loaded) {
@@ -6267,6 +6465,7 @@ class EasyNotesCard extends HTMLElement {
     let tooBig = 0;
     let failed = zipFailed;
     const batches = [];
+    const catLists = [];
     for (const f of files) {
       if (f.size > EASY_MAX_IMPORT_BYTES) {
         tooBig++;
@@ -6282,6 +6481,7 @@ class EasyNotesCard extends HTMLElement {
       }
       read++;
       const parsed = this._parseMarkdown(text, pathOf(f));
+      if (parsed.categories) catLists.push(parsed.categories);
       if (!parsed.notes.length) continue;
       found += parsed.notes.length;
       batches.push({ parsed, pos: parsed.notes[0]._pos });
@@ -6294,6 +6494,8 @@ class EasyNotesCard extends HTMLElement {
       total.updated += r.updated;
       total.skipped += r.skipped;
     }
+    // Festgelegte Kategorien: vorhandene Reihenfolge behalten, fehlende ergänzen
+    for (const list of catLists) this._catList = easyCleanCatList([...this._catList, ...list]);
 
     // Eine einzelne Datei: klare Einzelmeldung wie bisher
     if (single && tooBig) {
@@ -6307,7 +6509,7 @@ class EasyNotesCard extends HTMLElement {
     const problems = [];
     if (failed) problems.push(this._t("importFailedFiles").replace("{x}", failed));
     if (tooBig) problems.push(this._t("importTooBigFiles").replace("{x}", tooBig));
-    if (!found) {
+    if (!found && !catLists.length) {
       this._setError([this._t("importEmpty"), ...problems].join(" "));
       return null;
     }
@@ -6334,21 +6536,6 @@ class EasyNotesCard extends HTMLElement {
           throw new Error(`ZIP-Kompression ${e.method} wird nicht unterstützt`);
         },
       }));
-  }
-
-  _importText(text) {
-    if (this._readOnly()) {
-      this._setError(this._t("sharedNoAdmin"));
-      return null;
-    }
-    const parsed = this._parseMarkdown(text);
-    if (!parsed.notes.length) {
-      this._setError(this._t("importEmpty"));
-      return null;
-    }
-    const res = this._importParsed(parsed);
-    this._finishImport(res, 1, []);
-    return res;
   }
 
   _finishImport(res, files, problems) {
@@ -6411,13 +6598,19 @@ class EasyNotesCard extends HTMLElement {
   _buildZip() {
     const enc = new TextEncoder();
     const folder = `easy-notes-${this._dateStamp()}`;
-    const used = new Set();
+    const catFile = "_easy-notes-categories.md";
+    const used = new Set([catFile]); // Name für die Kategorien-Datei freihalten
     const files = this._notes.map((n, i) => ({
       name: `${folder}/${easyFileName(easyFirstLine(n.text, 60), used)}`,
       data: enc.encode(this._noteFileContent(n, i + 1)),
       date: n.updated ? new Date(n.updated) : new Date(),
     }));
-    return { bytes: easyZip(files), name: `${folder}.zip`, count: files.length };
+    // Festgelegte Kategorien (Board-Zeilen) als eigene, lesbare Datei
+    if (this._catList.length) {
+      const body = [`# ${this._t("edCats")}`, "", this._catListComment(), "", ...this._catList.map((c) => `- ${c}`), ""];
+      files.push({ name: `${folder}/${catFile}`, data: enc.encode(body.join("\n")), date: new Date() });
+    }
+    return { bytes: easyZip(files), name: `${folder}.zip`, count: this._notes.length };
   }
 
   _exportZip() {
@@ -6469,6 +6662,18 @@ class EasyNotesCard extends HTMLElement {
   }
 
   // ---------- Erinnerungen ----------
+  // Alle 10 s: aufgeschobenes Neuzeichnen nachholen und ca. jede Minute still nachladen,
+  // damit eine lange offene Card (z. B. Wandtablet) aktuell bleibt
+  _heartbeat() {
+    if (this._needsRender && !this._busy()) {
+      this._needsRender = false;
+      this._render();
+    }
+    this._ticks = (this._ticks || 0) + 1;
+    if (this._ticks % 6 === 0 && this._loaded && document.visibilityState !== "hidden") this._load({ silent: true });
+    this._tick();
+  }
+
   _tick() {
     if (!this._loaded || this._dragging) return;
     if (!this._remindersOn()) {
@@ -6491,9 +6696,25 @@ class EasyNotesCard extends HTMLElement {
     this._updateBadge();
   }
 
+  // Nur-lesen-Benutzer können "benachrichtigt" nicht speichern. Damit eine weggeklickte
+  // Benachrichtigung nicht bei jedem Öffnen wiederkommt, merkt sich das der Browser.
+  _notifiedKey(n) {
+    return `easy-notes:notified:${this._storageKey}:${n.id}:${n.remind_at}`;
+  }
+
+  _notifiedLocally(n) {
+    try {
+      return window.localStorage.getItem(this._notifiedKey(n)) === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
   _notify(n) {
     const id = String(n.id);
     if (!this._hass || this._notifying.has(id) || this._notifyFailed.has(id)) return;
+    const ro = this._readOnly();
+    if (ro && this._notifiedLocally(n)) return;
     this._notifying.add(id);
     const message = (n.text || "").trim().slice(0, 500) || this._t("emptyNote");
     Promise.resolve(
@@ -6505,6 +6726,13 @@ class EasyNotesCard extends HTMLElement {
     )
       .then(() => {
         n.notified = true;
+        if (ro) {
+          try {
+            window.localStorage.setItem(this._notifiedKey(n), "1");
+          } catch (_) {
+            /* Speicher nicht verfügbar */
+          }
+        }
         this._scheduleSave();
       })
       .catch((e) => {
@@ -6527,7 +6755,7 @@ class EasyNotesCard extends HTMLElement {
   // ---------- Laden / Speichern ----------
   async _load({ silent = false } = {}) {
     if (!this._hass || this._loading) return;
-    if (silent && (!this._loaded || this._dirty || this._saveTimer || this._dragging)) return;
+    if (silent && (!this._loaded || this._dirty || this._saveTimer || this._saving || this._dragging || this._graphBusy())) return;
     if (silent && (this.shadowRoot.activeElement || (this._ed && this._ed.note))) return; // nicht während getippt wird
 
     this._loading = true;
@@ -6539,7 +6767,16 @@ class EasyNotesCard extends HTMLElement {
       const res = await this._hass.callWS({ type, key });
       if (key !== this._storageKey || mode !== (this._storageMode || EASY_DEFAULTS.storage)) {
         stale = true;
-      } else if (silent && (this._dirty || this._saveTimer || this._dragging || this.shadowRoot.activeElement)) {
+      } else if (
+        silent &&
+        (this._dirty ||
+          this._saveTimer ||
+          this._saving ||
+          this._dragging ||
+          this._graphBusy() ||
+          this.shadowRoot.activeElement ||
+          (this._ed && this._ed.note))
+      ) {
         // Während des Abrufs wurde bearbeitet: Ergebnis verwerfen
       } else {
         const v = res && res.value;
@@ -6551,12 +6788,15 @@ class EasyNotesCard extends HTMLElement {
           JSON.stringify(catList) !== JSON.stringify(this._catList);
         this._loaded = true;
         this._setError(null);
+        // Stand des Speichers merken: Grundlage für das Zusammenführen beim nächsten Speichern
+        this._base = { notes: easyClone(notes), cats: [...catList] };
         if (changed) {
           this._notes = notes;
           this._catList = catList;
+          this._needsRender = false;
           this._render();
         }
-        if (mode === "shared" && !notes.length && !silent) this._offerMigrate(key);
+        if (mode === "shared" && !silent) this._offerMigrate(key);
       }
     } catch (e) {
       console.warn("Easy Notes: Laden fehlgeschlagen", e);
@@ -6582,11 +6822,42 @@ class EasyNotesCard extends HTMLElement {
 
     const key = this._storageKey;
     const hass = this._hass;
-    const type = this._storageMode === "shared" ? "frontend/set_system_data" : "frontend/set_user_data";
-    const value = { notes: this._notes.map((n) => ({ ...n })), categories: [...this._catList] };
+    const mode = this._storageMode || EASY_DEFAULTS.storage;
+    const getType = mode === "shared" ? "frontend/get_system_data" : "frontend/get_user_data";
+    const setType = mode === "shared" ? "frontend/set_system_data" : "frontend/set_user_data";
+    // Falls bis zum Speichern der Speicherort wechselt: Stand von jetzt verwenden
+    const fallback = { notes: easyClone(this._notes), cats: [...this._catList], base: this._base };
+    const isLive = () => key === this._storageKey && mode === (this._storageMode || EASY_DEFAULTS.storage);
+    // Ab jetzt gilt ein Speichervorgang als ausstehend: stilles Nachladen wartet
+    this._saving = (this._saving || 0) + 1;
+
     // Speichervorgänge nacheinander ausführen, damit sie nicht überholen
     this._saveChain = this._saveChain
-      .then(() => hass.callWS({ type, key, value }))
+      .then(async () => {
+        const live = isLive();
+        // Erst beim Ausführen erfassen, damit vorherige Speichervorgänge schon eingerechnet sind
+        const local = live ? easyClone(this._notes) : fallback.notes;
+        const localCats = live ? [...this._catList] : fallback.cats;
+        const base = (live ? this._base : fallback.base) || { notes: local, cats: localCats };
+
+        // Aktuellen Stand lesen und zusammenführen, statt blind zu überschreiben:
+        // Notizen, die inzwischen auf einem anderen Gerät/Browser angelegt oder geändert
+        // wurden, bleiben so erhalten. Schlägt das Lesen fehl, wird nicht geschrieben.
+        const res = await hass.callWS({ type: getType, key });
+        const rv = res && res.value;
+        const rNotes = rv && Array.isArray(rv.notes) ? rv.notes.map((n) => this._normalize(n)) : [];
+        // Ältere Card-Versionen speichern keine Kategorienliste: dann bisherige behalten
+        const rCats = rv && Array.isArray(rv.categories) ? easyCleanCatList(rv.categories) : base.cats;
+        const value = {
+          notes: easyMergeNotes(base.notes, local, rNotes),
+          categories: easyMergeCatList(base.cats, localCats, rCats),
+        };
+        await hass.callWS({ type: setType, key, value });
+        if (live && isLive()) {
+          this._base = { notes: easyClone(value.notes), cats: [...value.categories] };
+          this._applyMerged(local, localCats, value);
+        }
+      })
       .then(() => this._setError(null))
       .catch((e) => {
         console.error("Easy Notes: Speichern fehlgeschlagen", e);
@@ -6595,53 +6866,135 @@ class EasyNotesCard extends HTMLElement {
         if (this._isUnknownCommand(e)) msg = this._t("sharedUnsupported");
         else if (e && e.code === "unauthorized") msg = this._t("sharedNoAdmin");
         this._setError(msg);
+      })
+      .finally(() => {
+        this._saving = Math.max(0, (this._saving || 0) - 1);
       });
     return this._saveChain;
+  }
+
+  // Ergebnis des Zusammenführens übernehmen. Seit dem Speichern Bearbeitetes bleibt erhalten,
+  // vorhandene Notiz-Objekte werden an Ort und Stelle aktualisiert (offene Editoren behalten sie).
+  _applyMerged(sentNotes, sentCats, merged) {
+    const next = easyMergeNotes(sentNotes, this._notes, merged.notes);
+    const cur = new Map(this._notes.map((n) => [String(n.id), n]));
+    let changed = next.length !== this._notes.length;
+    const out = next.map((r, i) => {
+      const ex = cur.get(String(r.id));
+      if (ex !== this._notes[i]) changed = true;
+      if (!ex) return JSON.parse(JSON.stringify(r));
+      if (ex !== r && easyNoteSig(ex) !== easyNoteSig(r)) {
+        for (const k of Object.keys(ex)) delete ex[k];
+        Object.assign(ex, JSON.parse(JSON.stringify(r)));
+        changed = true;
+      }
+      return ex;
+    });
+    const cats = easyMergeCatList(sentCats, this._catList, merged.categories);
+    if (cats.join("\n") !== this._catList.join("\n")) changed = true;
+    this._notes = out;
+    this._catList = cats;
+    if (changed) this._renderSoon();
+  }
+
+  // Neu zeichnen, aber nicht mitten im Tippen oder Ziehen
+  _busy() {
+    const a = this.shadowRoot.activeElement;
+    const typing = !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable);
+    return this._dragging || this._graphBusy() || typing || !!(this._ed && this._ed.note);
+  }
+
+  // Im Netz wird gerade gezogen oder gezoomt
+  _graphBusy() {
+    const g = this._graph;
+    return !!g && this._view === "graph" && (!!g.drag || !!g.pinch || !!g.pan);
+  }
+
+  _renderSoon() {
+    if (this._busy()) {
+      this._needsRender = true;
+      return;
+    }
+    this._needsRender = false;
+    this._render();
   }
 
   _isUnknownCommand(e) {
     return !!e && (e.code === "unknown_command" || /unknown command/i.test(String(e.message || "")));
   }
 
-  // Gemeinsamer Speicher leer: eigene Notizen (gleicher Schlüssel) zur Übernahme anbieten
+  // Persönliche Notizen (gleicher Schlüssel), die im gemeinsamen Speicher fehlen, zur Übernahme
+  // anbieten – nicht nur, wenn der gemeinsame Speicher leer ist. Wer schon Notizen im gemeinsamen
+  // Speicher hatte, bekam früher keinen Hinweis, und die älteren Notizen wirkten verschwunden.
   async _offerMigrate(key) {
-    if (this._readOnly() || !this._hass) return;
+    if (!this._hass || this._storageMode !== "shared") return;
     this._migrateDone = this._migrateDone || new Set();
     if (this._migrateDone.has(key)) return;
+    const uiKey = `${key}__migrate`;
     let mine = [];
     let mineCats = [];
+    let dismissed = new Set();
     try {
-      const res = await this._hass.callWS({ type: "frontend/get_user_data", key });
+      const [res, ui] = await Promise.all([
+        this._hass.callWS({ type: "frontend/get_user_data", key }),
+        Promise.resolve(this._hass.callWS({ type: "frontend/get_user_data", key: uiKey })).catch(() => null),
+      ]);
       const v = res && res.value;
       mine = v && Array.isArray(v.notes) ? v.notes.map((n) => this._normalize(n)) : [];
       mineCats = easyCleanCatList(v && v.categories);
+      const d = ui && ui.value;
+      if (d && Array.isArray(d.dismissed)) dismissed = new Set(d.dismissed.map(String));
     } catch (_) {
       return;
     }
-    if (!mine.length || this._storageMode !== "shared" || this._storageKey !== key || this._notes.length) return;
+    if (this._storageMode !== "shared" || this._storageKey !== key || this._migrateDone.has(key)) return;
+    const haveIds = new Set(this._notes.map((n) => String(n.id)));
+    const haveText = new Set(this._notes.map((n) => n.text.trim()));
+    const missing = mine.filter(
+      (n) => n.text.trim() && !haveIds.has(String(n.id)) && !haveText.has(n.text.trim()) && !dismissed.has(String(n.id))
+    );
+    if (!missing.length) return;
+
+    const ro = this._readOnly();
+    const empty = !this._notes.length;
+    const count = this._count(missing.length, "nNotes");
     const box = this._elMigrate;
     box.replaceChildren();
     const text = document.createElement("span");
     text.className = "migrate-text";
-    text.textContent = this._t("migrateText").replace("{n}", this._count(mine.length, "nNotes"));
-    const skip = this._btn({ label: this._t("migrateDismiss"), size: "s" });
+    text.textContent = this._t(ro ? "migrateRo" : empty ? "migrateText" : "migrateTextSome").replace("{n}", count);
+    const skip = this._btn({ label: this._t(empty && !ro ? "migrateDismiss" : "migrateHide"), size: "s" });
     skip.addEventListener("click", () => {
       this._migrateDone.add(key);
       this._hideMigrate();
+      // Entscheidung pro Benutzer merken, damit der Hinweis nicht bei jedem Laden kommt
+      const value = { dismissed: [...new Set([...dismissed, ...missing.map((n) => String(n.id))])] };
+      Promise.resolve(this._hass.callWS({ type: "frontend/set_user_data", key: uiKey, value })).catch(() => {});
     });
-    const go = this._btn({ label: this._t("migrateBtn"), appearance: "filled", variant: "brand", size: "s" });
-    go.addEventListener("click", () => {
-      this._migrateDone.add(key);
-      this._hideMigrate();
-      if (this._notes.length) return; // inzwischen befüllt: nichts überschreiben
-      this._notes = mine;
-      if (!this._catList.length) this._catList = mineCats;
-      this._render();
-      this._scheduleSave();
-      this._flush();
-      this._setMessage(this._t("migrated").replace("{n}", this._count(mine.length, "nNotes")));
-    });
-    box.append(text, skip, go);
+    box.append(text, skip);
+    if (!ro) {
+      const go = this._btn({
+        label: this._t(empty ? "migrateBtn" : "migrateBtnSome"),
+        appearance: "filled",
+        variant: "brand",
+        size: "s",
+      });
+      go.addEventListener("click", () => {
+        this._migrateDone.add(key);
+        this._hideMigrate();
+        if (this._storageKey !== key || this._readOnly()) return;
+        const have = new Set(this._notes.map((n) => String(n.id)));
+        const add = missing.filter((n) => !have.has(String(n.id)));
+        if (!add.length) return;
+        this._notes = [...this._notes, ...add];
+        this._catList = easyCleanCatList([...this._catList, ...mineCats]);
+        this._render();
+        this._scheduleSave();
+        this._flush();
+        this._setMessage(this._t("migrated").replace("{n}", this._count(add.length, "nNotes")));
+      });
+      box.append(go);
+    }
     box.hidden = false;
   }
 
