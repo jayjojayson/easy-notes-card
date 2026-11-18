@@ -30,6 +30,14 @@ Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 
 **Board-Ansicht**
 - **Eine Zeile pro Kategorie**: Notizen erscheinen als kompakte Karten in einer Zeile je Kategorie – wie ein Aufgaben-Board (z. B. *In Arbeit*, *Prio A*, *Prio B*).
+- **Werkzeuge an jeder Karte**: Der ☰-Knopf an einer Karte öffnet Kategorien, Erinnerung, Farbe, Sichtbarkeit und Löschen – ohne die Ansicht zu wechseln.
+- **Karten umbrechen** (`board_wrap`): Alle Karten einer Kategorie in mehreren Reihen statt seitlich scrollen – praktisch auf dem Handy.
+
+**Screenshots & Bilder**
+- **Screenshots einfügen** mit Strg+V direkt in eine Notiz, über den Bild-Knopf im Editor oder per Bilddatei ins Textfeld ziehen.
+- Bilder liegen im Medienordner von Home Assistant im Unterordner **Easy Notes Pictures**, in der Notiz steht nur der Verweis. Hochladen können nur Administratoren, anzeigen alle. Board-Karten zeigen das erste Bild als Vorschau.
+- **Löschen einer Notiz löscht ihre Bilder** im Medienordner mit (Bilder, die eine andere Notiz noch verwendet, bleiben erhalten). Bei Notizen mit Bildern kommt vorher eine Rückfrage.
+- **Mit Bildern exportieren (ZIP)** legt die Bilder in einen Ordner `images/` im ZIP; beim Import eines solchen ZIP werden sie wieder hochgeladen.
 - **Drag & Drop zwischen Kategorien**: Karte nach links/rechts ziehen ändert die Reihenfolge, in eine andere Zeile ziehen wechselt die Kategorie. Mit Maus, Touch (Griff) und Tastatur.
 - **Kategorien vorab festlegen**: Kategorien auch ohne Notiz anlegen und die Zeilen nach oben und unten sortieren.
 - **Kategorien auswählen oder ergänzen lassen**: An der Notiz oder im Markdown-Editor-Popup eine vorhandene Kategorie aus dem Auswahlfeld wählen oder beim Tippen automatisch ergänzen lassen – keine Doppelungen mehr.
@@ -48,7 +56,7 @@ Wenn dir die Card gefällt, freue ich mich über einen Stern ⭐. 🤗
 
 **Sichern**
 - **Export** aller Notizen als eine Markdown-Datei, als einzelne Markdown-Dateien in einer ZIP oder als Markdown in die Zwischenablage. Die Board-Kategorien samt Reihenfolge sind enthalten.
-- **Import** von Markdown-Dateien, ZIP-Archiven oder ganzen Ordnern – Doppelte werden übersprungen, geänderte Notizen aktualisiert.
+- **Import** von Markdown-Dateien, ZIP-Archiven oder einem Ordner mit Markdown-Dateien (.md) – Doppelte werden übersprungen, geänderte Notizen aktualisiert. Bilder aus „Mit Bildern exportieren“ (ZIP oder ausgepackter Ordner) werden wieder hochgeladen.
 
 **Bedienung**
 - **Visueller Editor**: Alles ist im Home-Assistant-UI einstellbar – kein YAML nötig.
@@ -109,8 +117,9 @@ Alles andere ist optional.
 | Suche | `show_search` | Suchfeld anzeigen. |
 | Kategorien | `show_categories` | Kategorie-Leiste über den Notizen anzeigen. |
 | Anzahl der Notizen | `show_count` | Summe aller Notizen neben dem Titel anzeigen (bei Suche oder Filter: gefunden / alle). |
+| Board-Karten umbrechen | `board_wrap` | Board: Alle Karten einer Kategorie in mehreren Reihen statt in einer seitlich scrollbaren Zeile. |
 | Anzahl sichtbarer Notizen | `max_notes` | `0` zeigt alle Notizen; sonst nur diese Anzahl, der Rest steckt hinter „Weitere anzeigen“. |
-| Notizfarbe | `note_color` | Farbe neuer Notizen: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green` oder `grey`. |
+| Notizfarbe | `note_color` | Farbe neuer Notizen: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green`, `grey` oder eine eigene Farbe `#rrggbb` (im Editor: „Eigene Farbe …“ mit Farbfeld). |
 | Erinnerungen | `reminders` | Erinnerungen pro Notiz aktivieren. |
 | Seitenleisten-Benachrichtigung | `sidebar_notification` | Fällige Erinnerung zusätzlich als HA-Benachrichtigung in der Seitenleiste anzeigen. |
 | Schlummerzeit | `snooze_minutes` | Minuten, nach denen eine verschobene Erinnerung erneut erscheint. |
@@ -126,8 +135,9 @@ default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
 show_count: false              # Anzahl der Notizen neben dem Titel
+board_wrap: false              # Board: Karten umbrechen statt seitlich scrollen
 max_notes: 0                   # 0 = alle Notizen
-note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
+note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey | #rrggbb
 reminders: true
 sidebar_notification: false
 snooze_minutes: 10

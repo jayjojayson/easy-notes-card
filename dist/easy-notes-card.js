@@ -1,6 +1,6 @@
 /*
  * Easy Notes – Notiz-Card für Home Assistant
- * Version 1.0.9
+ * Version 1.1.0
  *
  * Schnelle Notizen mit Markdown, Farben, Kategorien, Erinnerungen, Verschieben per Drag & Drop,
  * Editor mit Formatierungsleiste, Board-Ansicht (eine Zeile pro Kategorie, Notizen per Drag & Drop
@@ -28,6 +28,7 @@
  *   max_notes: 0                   # 0 = alle Notizen, sonst Anzahl sichtbarer Notizen
  *   show_categories: true          # Kategorie-Leiste über den Notizen
  *   show_count: false              # Anzahl der Notizen neben dem Titel
+ *   board_wrap: false              # Board: Karten umbrechen statt seitlich scrollen
  *   note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
  *   reminders: true                # Erinnerungen pro Notiz
  *   sidebar_notification: false    # fällige Erinnerung zusätzlich als HA-Benachrichtigung (Seitenleiste)
@@ -42,7 +43,7 @@
  * Öffnen werden verpasste Erinnerungen sofort angezeigt.
  */
 
-const EASY_NOTES_VERSION = "1.0.9";
+const EASY_NOTES_VERSION = "1.1.0";
 
 // MDI-Pfade (@mdi/js)
 const mdiPlus = "M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z";
@@ -59,6 +60,22 @@ const mdiBellSleep =
   "M10,21H14A2,2 0 0,1 12,23A2,2 0 0,1 10,21M21,19V20H3V19L5,17V11C5,7.9 7.03,5.17 10,4.29C10,4.19 10,4.1 10,4A2,2 0 0,1 12,2A2,2 0 0,1 14,4C14,4.1 14,4.19 14,4.29C16.97,5.17 19,7.9 19,11V17L21,19M15,9H9V11H12.24L9,13.7V16H15V14H11.76L15,11.3V9Z";
 const mdiPalette =
   "M17.5,12A1.5,1.5 0 0,1 16,10.5A1.5,1.5 0 0,1 17.5,9A1.5,1.5 0 0,1 19,10.5A1.5,1.5 0 0,1 17.5,12M14.5,8A1.5,1.5 0 0,1 13,6.5A1.5,1.5 0 0,1 14.5,5A1.5,1.5 0 0,1 16,6.5A1.5,1.5 0 0,1 14.5,8M9.5,8A1.5,1.5 0 0,1 8,6.5A1.5,1.5 0 0,1 9.5,5A1.5,1.5 0 0,1 11,6.5A1.5,1.5 0 0,1 9.5,8M6.5,12A1.5,1.5 0 0,1 5,10.5A1.5,1.5 0 0,1 6.5,9A1.5,1.5 0 0,1 8,10.5A1.5,1.5 0 0,1 6.5,12M12,3A9,9 0 0,0 3,12A9,9 0 0,0 12,21A1.5,1.5 0 0,0 13.5,19.5C13.5,19.11 13.35,18.76 13.11,18.5C12.88,18.23 12.73,17.88 12.73,17.5A1.5,1.5 0 0,1 14.23,16H16A5,5 0 0,0 21,11C21,6.58 16.97,3 12,3Z";
+const mdiImageOutline =
+  "M19,19H5V5H19M19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5A2,2 0 0,0 19,3M13.96,12.29L11.21,15.83L9.25,13.47L6.5,17H17.5L13.96,12.29Z";
+const EASY_MAX_IMAGE_BYTES = 20 * 1024 * 1024; // Grenze des HA-Uploads
+const EASY_IMG_FOLDER = "Easy Notes Pictures"; // Unterordner im HA-Medienordner
+const EASY_HEX_RE = /^#[0-9a-f]{6}$/i; // eigene Farbe
+const EASY_IMG_RE = /!\[([^\]\n]*)\]\(([^)\s]+)\)/g;
+
+// Alle Bilder aus dem HA-Medienordner, die eine Notiz verwendet (/media/…)
+function easyMediaImages(text) {
+  const out = [];
+  for (const m of String(text || "").matchAll(EASY_IMG_RE)) {
+    if (/^\/media\//.test(m[2]) && !out.includes(m[2])) out.push(m[2]);
+  }
+  return out;
+}
+const mdiMenu = "M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z";
 const mdiDragVertical =
   "M9,3H11V5H9V3M13,3H15V5H13V3M9,7H11V9H9V7M13,7H15V9H13V7M9,11H11V13H9V11M13,11H15V13H13V11M9,15H11V17H9V15M13,15H15V17H13V15M9,19H11V21H9V19M13,19H15V21H13V19Z";
 const mdiCheck = "M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z";
@@ -154,6 +171,7 @@ const EASY_DEFAULTS = {
   show_search: true,
   show_categories: true,
   show_count: false,
+  board_wrap: false,
   max_notes: 0,
   note_color: "random",
   reminders: true,
@@ -256,6 +274,27 @@ const EASY_I18N = {
     boardEmptyLane: "Keine Notizen",
     boardDrag: "Verschieben (ziehen; Pfeiltasten links/rechts = Reihenfolge, hoch/runter = Kategorie)",
     boardOpen: "Zum Bearbeiten öffnen",
+    boardMenu: "Werkzeuge",
+    imgAlt: "Screenshot",
+    imgNote: "Bild",
+    imgUploading: "Bild wird hochgeladen …",
+    imgUploaded: "Bild eingefügt.",
+    imgNoAdmin: "Bilder hochladen können nur Administratoren.",
+    imgError: "Das Bild konnte nicht hochgeladen werden. Bilder werden im Medienordner von Home Assistant gespeichert (Medien > Lokale Medien).",
+    imgTooBig: "Das Bild ist zu groß (höchstens 20 MB).",
+    delImgs: "Die zugehörigen Bilder ({x}) werden auch aus dem Medienordner von Home Assistant gelöscht.",
+    delImgsKeep: "Die zugehörigen Bilder ({x}) bleiben im Medienordner von Home Assistant („Easy Notes Pictures“) liegen – löschen können sie nur Administratoren.",
+    imgsKept: "{x} Bild(er) der Notiz liegen weiter im Medienordner von Home Assistant („Easy Notes Pictures“). Löschen können sie nur Administratoren.",
+    imgsDeleteFail: "{x} Bild(er) konnten nicht gelöscht werden und liegen weiter im Medienordner („Easy Notes Pictures“).",
+    exportZipImg: "Mit Bildern exportieren (ZIP)",
+    exportingImgs: "Bilder werden gesammelt …",
+    exportedZipImg: "{n} exportiert, dazu {x} Bild(er).",
+    exportImgFailed: "{x} Bild(er) konnten nicht gelesen werden und fehlen im Export.",
+    importedImages: "{x} Bild(er) übernommen.",
+    importImgSkipped: "{x} Bild(er) nicht übernommen – Bilder hochladen können nur Administratoren.",
+    importImgFailed: "{x} Bild(er) konnten nicht hochgeladen werden.",
+    menuDeleteQ: "Notiz wirklich löschen?",
+    menuDeleteYes: "Löschen",
     boardHint: "Lege Kategorien an. Jede Kategorie wird eine Zeile, Notizen verschiebst du per Drag & Drop.",
     boardExists: "Die Kategorie „{c}“ gibt es schon.",
     // Ansichten
@@ -281,7 +320,7 @@ const EASY_I18N = {
     exportZip: "Als einzelne Dateien exportieren (ZIP)",
     exportCopy: "Als Markdown kopieren",
     importFile: "Markdown-Dateien oder ZIP importieren",
-    importDir: "Ordner importieren",
+    importDir: "Ordner importieren (.md)",
     importedFiles: "{f} Dateien gelesen.",
     importFailedFiles: "{x} Dateien konnten nicht gelesen werden.",
     importTooBigFiles: "{x} Dateien waren größer als 2 MB und wurden übersprungen.",
@@ -334,10 +373,12 @@ const EASY_I18N = {
       codeblock: "Codeblock",
       link: "Link (Strg+K)",
       hr: "Trennlinie",
+      image: "Bild einfügen (oder Screenshot mit Strg+V einfügen)",
     },
     nNotes: ["1 Notiz", "{n} Notizen"],
     nCats: ["1 Kategorie", "{n} Kategorien"],
     colors: { yellow: "Gelb", orange: "Orange", pink: "Pink", purple: "Lila", blue: "Blau", teal: "Türkis", green: "Grün", grey: "Grau" },
+    colorCustom: "Eigene Farbe",
   },
   en: {
     title: "Easy Notes",
@@ -412,6 +453,27 @@ const EASY_I18N = {
     boardEmptyLane: "No notes",
     boardDrag: "Move (drag; left/right arrow keys = order, up/down = category)",
     boardOpen: "Open to edit",
+    boardMenu: "Tools",
+    imgAlt: "Screenshot",
+    imgNote: "Image",
+    imgUploading: "Uploading image …",
+    imgUploaded: "Image inserted.",
+    imgNoAdmin: "Only administrators can upload images.",
+    imgError: "The image could not be uploaded. Images are stored in the Home Assistant media folder (Media > Local media).",
+    imgTooBig: "The image is too large (max. 20 MB).",
+    delImgs: "Its images ({x}) are deleted from the Home Assistant media folder as well.",
+    delImgsKeep: "Its images ({x}) stay in the Home Assistant media folder (“Easy Notes Pictures”) – only administrators can delete them.",
+    imgsKept: "{x} image(s) of the note stay in the Home Assistant media folder (“Easy Notes Pictures”). Only administrators can delete them.",
+    imgsDeleteFail: "{x} image(s) could not be deleted and stay in the media folder (“Easy Notes Pictures”).",
+    exportZipImg: "Export with images (ZIP)",
+    exportingImgs: "Collecting images …",
+    exportedZipImg: "Exported {n} and {x} image(s).",
+    exportImgFailed: "{x} image(s) could not be read and are missing from the export.",
+    importedImages: "{x} image(s) imported.",
+    importImgSkipped: "{x} image(s) not imported – only administrators can upload images.",
+    importImgFailed: "{x} image(s) could not be uploaded.",
+    menuDeleteQ: "Delete this note?",
+    menuDeleteYes: "Delete",
     boardHint: "Create categories. Every category becomes a row, and you move notes by drag & drop.",
     boardExists: "The category “{c}” already exists.",
     viewGroup: "View",
@@ -435,7 +497,7 @@ const EASY_I18N = {
     exportZip: "Export as separate files (ZIP)",
     exportCopy: "Copy as Markdown",
     importFile: "Import Markdown files or ZIP",
-    importDir: "Import folder",
+    importDir: "Import folder (.md)",
     importedFiles: "Read {f} files.",
     importFailedFiles: "{x} files could not be read.",
     importTooBigFiles: "{x} files were larger than 2 MB and were skipped.",
@@ -487,10 +549,12 @@ const EASY_I18N = {
       codeblock: "Code block",
       link: "Link (Ctrl+K)",
       hr: "Divider",
+      image: "Insert image (or paste a screenshot with Ctrl+V)",
     },
     nNotes: ["1 note", "{n} notes"],
     nCats: ["1 category", "{n} categories"],
     colors: { yellow: "Yellow", orange: "Orange", pink: "Pink", purple: "Purple", blue: "Blue", teal: "Teal", green: "Green", grey: "Grey" },
+    colorCustom: "Custom color",
   },
 };
 
@@ -643,7 +707,8 @@ function easyPlain(line) {
     .replace(/^\s{0,3}#{1,6}\s+/, "")
     .replace(/^(\s*>\s?)+/, "")
     .replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, "")
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // Bilder in Kurztexten weglassen
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\*\*|__|~~|`/g, "")
     .trim();
 }
@@ -940,10 +1005,35 @@ function easyLink(url) {
   return a;
 }
 
+// Bild: Home-Assistant-Medien (/media/…) werden später mit signierter Adresse geladen,
+// externe Bilder nur über http(s). Ein Klick öffnet das Bild in voller Größe.
+function easyImage(alt, url) {
+  const media = /^\/media\/[^?#]+$/.test(url) && !/(^|\/)\.\.(\/|$)/.test(url);
+  if (!media && !/^https?:\/\//i.test(url)) return null;
+  const a = document.createElement("a");
+  a.className = "md-img-link";
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  const img = document.createElement("img");
+  img.className = "md-img";
+  img.alt = alt || "";
+  img.loading = "lazy";
+  img.decoding = "async";
+  if (media) {
+    img.dataset.mediaPath = url; // Adresse setzt die Card nach dem Signieren
+  } else {
+    img.src = url;
+    img.referrerPolicy = "no-referrer";
+    a.href = url;
+  }
+  a.appendChild(img);
+  return a;
+}
+
 function easyMdInline(text, parent) {
-  // 1 Escape, 2/3 Code, 4/5 Link, 6/7 Fett, 8 Durchgestrichen, 9/10 Kursiv, 11 URL
+  // 1 Escape, 2/3 Code, 4/5 Link, 6/7 Fett, 8 Durchgestrichen, 9/10 Kursiv, 11 URL, 12/13 Bild
   const re =
-    /\\([\\`*_{}[\]()#+\-.!~|>])|(`+)([^`]|[^`][\s\S]*?[^`])\2(?!`)|\[([^\]\n]+)\]\(([^)\s]+)\)|(\*\*|__)(?=\S)([\s\S]*?\S)\6|~~(?=\S)([\s\S]*?\S)~~|(\*|_)(?=\S)([\s\S]*?\S)\9|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])/g;
+    /\\([\\`*_{}[\]()#+\-.!~|>])|(`+)([^`]|[^`][\s\S]*?[^`])\2(?!`)|\[([^\]\n]+)\]\(([^)\s]+)\)|(\*\*|__)(?=\S)([\s\S]*?\S)\6|~~(?=\S)([\s\S]*?\S)~~|(\*|_)(?=\S)([\s\S]*?\S)\9|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"\]])|!\[([^\]\n]*)\]\(([^)\s]+)\)/g;
   const push = (t) => {
     if (t) parent.appendChild(document.createTextNode(t));
   };
@@ -994,6 +1084,10 @@ function easyMdInline(text, parent) {
       const a = easyLink(m[11]);
       a.textContent = m[11];
       parent.appendChild(a);
+    } else if (m[13] !== undefined) {
+      const im = easyImage(m[12], m[13]);
+      if (im) parent.appendChild(im);
+      else push(m[12]); // unsichere Adresse: nur der Alternativtext
     }
     last = end;
   }
@@ -1251,9 +1345,12 @@ const EASY_EDITOR_I18N = {
     show_search: "Suchfeld anzeigen",
     show_categories: "Kategorie-Leiste anzeigen",
     show_count: "Anzahl der Notizen anzeigen",
+    board_wrap: "Board: Karten umbrechen statt seitlich scrollen",
     show_all_notes: "Alle Notizen anzeigen",
     max_notes: "Anzahl sichtbarer Notizen",
     note_color: "Farbe neuer Notizen",
+    custom_color: "Eigene Farbe …",
+    note_color_custom: "Eigene Farbe für neue Notizen",
     reminders: "Erinnerungen aktivieren",
     sidebar_notification: "Fällige Erinnerung als Benachrichtigung in der HA-Seitenleiste",
     snooze_minutes: "Später erinnern nach (Minuten)",
@@ -1271,6 +1368,7 @@ const EASY_EDITOR_I18N = {
       "Aus: Die Card zeigt nur die ersten Notizen. Die übrigen erreichst du über „weitere anzeigen“, die Suche, die Kategorien und die Netzansicht.",
     helper_max_notes: "Es zählen die ersten Notizen in deiner Reihenfolge. Neue Notizen stehen oben.",
     helper_show_count: "Zeigt die Summe aller Notizen neben dem Titel. Bei Suche oder Kategorie-Filter: gefundene / alle.",
+    helper_board_wrap: "Alle Karten einer Kategorie stehen untereinander in mehreren Reihen – praktisch auf dem Handy.",
   },
   en: {
     title: "Title",
@@ -1287,9 +1385,12 @@ const EASY_EDITOR_I18N = {
     show_search: "Show search field",
     show_categories: "Show category bar",
     show_count: "Show number of notes",
+    board_wrap: "Board: wrap cards instead of scrolling sideways",
     show_all_notes: "Show all notes",
     max_notes: "Number of visible notes",
     note_color: "Color of new notes",
+    custom_color: "Custom color …",
+    note_color_custom: "Custom color for new notes",
     reminders: "Enable reminders",
     sidebar_notification: "Show due reminders as notification in the HA sidebar",
     snooze_minutes: "Snooze for (minutes)",
@@ -1306,6 +1407,7 @@ const EASY_EDITOR_I18N = {
       "Off: the card only shows the first notes. Reach the others with “show more”, search, categories and the graph view.",
     helper_max_notes: "Counts the first notes in your order. New notes appear at the top.",
     helper_show_count: "Shows the total number of notes next to the title. While searching or filtering: found / all.",
+    helper_board_wrap: "All cards of a category are shown in several rows – handy on a phone.",
   },
 };
 
@@ -1368,6 +1470,7 @@ class EasyNotesCardEditor extends HTMLElement {
       { name: "show_search", selector: { boolean: {} } },
       { name: "show_categories", selector: { boolean: {} } },
       { name: "show_count", selector: { boolean: {} } },
+      { name: "board_wrap", selector: { boolean: {} } },
       ...limitFields,
       {
         name: "note_color",
@@ -1377,10 +1480,13 @@ class EasyNotesCardEditor extends HTMLElement {
             options: [
               { value: "random", label: t.random },
               ...EASY_COLOR_KEYS.map((k) => ({ value: k, label: colors[k] })),
+              { value: "custom", label: t.custom_color },
             ],
           },
         },
       },
+      // Eigene Farbe: Farbfeld von Home Assistant, gespeichert als #rrggbb
+      ...(data.note_color === "custom" ? [{ name: "note_color_custom", selector: { color_rgb: {} } }] : []),
       { name: "reminders", selector: { boolean: {} } },
       { name: "sidebar_notification", selector: { boolean: {} } },
       {
@@ -1401,6 +1507,12 @@ class EasyNotesCardEditor extends HTMLElement {
     const data = { ...EASY_DEFAULTS, ...this._config };
     // Hilfsfeld nur für den Editor, landet nicht in der Konfiguration
     data.show_all_notes = !(data.max_notes > 0);
+    // Eigene Farbe (#rrggbb) im Editor als Auswahl "custom" mit Farbfeld zeigen
+    if (EASY_HEX_RE.test(String(data.note_color))) {
+      const h = data.note_color;
+      data.note_color_custom = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      data.note_color = "custom";
+    }
     if (data.max_notes > 0) this._lastMax = data.max_notes;
     this._form.hass = this._hass;
     this._form.data = data;
@@ -1416,6 +1528,11 @@ class EasyNotesCardEditor extends HTMLElement {
     const value = { ...ev.detail.value };
     const showAll = value.show_all_notes;
     delete value.show_all_notes;
+    if (value.note_color === "custom") {
+      const rgb = Array.isArray(value.note_color_custom) ? value.note_color_custom : [33, 150, 243];
+      value.note_color = `#${rgb.map((v) => Math.max(0, Math.min(255, Math.round(Number(v) || 0))).toString(16).padStart(2, "0")).join("")}`;
+    }
+    delete value.note_color_custom;
     if (showAll === true) {
       value.max_notes = 0;
     } else if (showAll === false && !(value.max_notes > 0)) {
@@ -2140,7 +2257,7 @@ class EasyNotesGraph {
       head.append(tags, close);
       if (note.text.trim()) {
         body.classList.add("md");
-        body.appendChild(easyMdRender(note.text));
+        body.appendChild(card._md(note.text));
       } else {
         body.textContent = card._t("emptyNote");
       }
@@ -2242,6 +2359,7 @@ class EasyNotesCard extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._closeBoardMenu({ focus: false, render: false });
     document.removeEventListener("visibilitychange", this._onVisibility);
     window.removeEventListener("pagehide", this._onPageHide);
     clearInterval(this._tickTimer);
@@ -2275,11 +2393,12 @@ class EasyNotesCard extends HTMLElement {
     if (
       config.note_color !== undefined &&
       config.note_color !== "random" &&
-      !EASY_COLOR_KEYS.includes(config.note_color)
+      !EASY_COLOR_KEYS.includes(config.note_color) &&
+      !EASY_HEX_RE.test(String(config.note_color))
     ) {
-      throw new Error(`note_color muss random oder eines von ${EASY_COLOR_KEYS.join(", ")} sein`);
+      throw new Error(`note_color muss random, #rrggbb oder eines von ${EASY_COLOR_KEYS.join(", ")} sein`);
     }
-    for (const k of ["show_search", "show_categories", "show_count", "reminders", "sidebar_notification", "note_visibility"]) {
+    for (const k of ["show_search", "show_categories", "show_count", "board_wrap", "reminders", "sidebar_notification", "note_visibility"]) {
       if (config[k] !== undefined && typeof config[k] !== "boolean") {
         throw new Error(`${k} muss true oder false sein`);
       }
@@ -3108,6 +3227,20 @@ class EasyNotesCard extends HTMLElement {
           color: var(--primary-text-color);
           overflow-wrap: anywhere;
         }
+        .md-img-link { display: inline-block; max-width: 100%; line-height: 0; }
+        .md-img {
+          display: block;
+          max-width: 100%;
+          height: auto;
+          max-height: 420px;
+          margin: 4px 0;
+          border-radius: 8px;
+          border: 1px solid var(--divider-color);
+          object-fit: contain;
+          background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
+        }
+        .md-img:not([src]) { min-width: 120px; min-height: 60px; }
+        .md-img-missing { opacity: 0.5; }
         .md > :first-child { margin-top: 0; }
         .md > :last-child { margin-bottom: 0; }
         .md p { margin: 0 0 8px; }
@@ -3203,6 +3336,24 @@ class EasyNotesCard extends HTMLElement {
           cursor: pointer;
         }
         .swatch.sel { border-color: var(--primary-text-color); }
+        .swatch-custom {
+          position: relative;
+          box-sizing: border-box;
+          background: conic-gradient(#f44336, #ffeb3b, #4caf50, #00bcd4, #2196f3, #9c27b0, #f44336);
+          cursor: pointer;
+          overflow: hidden;
+        }
+        .swatch-custom input {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0;
+          border: none;
+          padding: 0;
+          cursor: pointer;
+        }
+        .swatch-custom:focus-within { outline: 2px solid var(--primary-color); outline-offset: 2px; }
         .swatch:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
         .dt, .cat-input {
           width: 100%;
@@ -3464,6 +3615,16 @@ class EasyNotesCard extends HTMLElement {
           color: var(--secondary-text-color);
         }
         .bl-track .bc ~ .bl-empty { display: none; }
+        /* Umbruch (board_wrap): alle Karten einer Kategorie in mehreren Reihen */
+        .board.wrap .bl-track {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--easy-board-card-width, 190px)), 1fr));
+          overflow-x: visible;
+          scroll-snap-type: none;
+        }
+        .board.wrap .bc { min-width: 0; }
+        .board.wrap .bc-title { -webkit-line-clamp: 3; }
+        .board.wrap .bl-empty { grid-column: 1 / -1; }
         .bc {
           --c: var(--blue-color, #38bdf8);
           position: relative;
@@ -3506,7 +3667,9 @@ class EasyNotesCard extends HTMLElement {
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
           overflow: hidden;
-          overflow-wrap: anywhere;
+          overflow-wrap: break-word;
+          hyphens: auto;
+          -webkit-hyphens: auto;
         }
         .bc-handle {
           flex-shrink: 0;
@@ -3525,7 +3688,95 @@ class EasyNotesCard extends HTMLElement {
           touch-action: none;
         }
         .bc-handle:hover, .bc-handle:focus-visible { background: rgba(127, 127, 127, 0.18); outline: none; }
-        .bc-handle ha-svg-icon { --mdc-icon-size: 18px; }
+        .bc-handle ha-svg-icon, .bc-menu ha-svg-icon { --mdc-icon-size: 18px; }
+        .bc-menu {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          margin: -3px 0 0;
+          padding: 0;
+          border: none;
+          border-radius: 6px;
+          background: transparent;
+          color: var(--secondary-text-color);
+          cursor: pointer;
+        }
+        .bc-menu:hover, .bc-menu:focus-visible, .bc-menu[aria-expanded="true"] {
+          background: rgba(127, 127, 127, 0.18);
+          color: var(--primary-text-color);
+          outline: none;
+        }
+        .bc-pop {
+          position: fixed;
+          z-index: 9998;
+          box-sizing: border-box;
+          width: min(300px, calc(100vw - 16px));
+          max-height: min(70vh, 520px);
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 6px;
+          border-radius: 14px;
+          border: 1px solid var(--divider-color);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color);
+          box-shadow: var(--ha-box-shadow-l, 0 10px 28px rgba(0, 0, 0, 0.3));
+          font-size: 14px;
+        }
+        .bc-pop-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          min-height: 38px;
+          padding: 6px 10px;
+          border: none;
+          border-radius: 10px;
+          background: transparent;
+          color: inherit;
+          font: inherit;
+          text-align: start;
+          cursor: pointer;
+        }
+        .bc-pop-item ha-svg-icon { --mdc-icon-size: 20px; color: var(--secondary-text-color); flex-shrink: 0; }
+        .bc-pop-item:hover, .bc-pop-item:focus-visible { background: color-mix(in srgb, var(--primary-text-color) 7%, transparent); outline: none; }
+        .bc-pop-item.on { background: color-mix(in srgb, var(--primary-color) 12%, transparent); }
+        .bc-pop-item.on ha-svg-icon { color: var(--primary-color); }
+        .bc-pop-item.danger, .bc-pop-item.danger ha-svg-icon { color: var(--error-color, #db4437); }
+        .bc-pop-sub {
+          margin-inline-start: auto;
+          font-size: 12px;
+          color: var(--secondary-text-color);
+          white-space: nowrap;
+        }
+        .bc-pop-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin: 2px 4px 6px;
+          padding: 8px;
+          border-radius: 10px;
+          border: 1px solid var(--divider-color);
+          background: color-mix(in srgb, var(--c) 8%, var(--card-background-color, #fff));
+        }
+        .del-confirm { display: flex; flex-direction: column; gap: 6px; }
+        .del-q { font-weight: 600; }
+        .del-hint { font-size: 13px; color: var(--secondary-text-color); }
+        .del-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+        .bc-thumb {
+          display: block;
+          width: 100%;
+          height: 84px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid var(--divider-color);
+          background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
+          pointer-events: none;
+        }
         .bc-snip {
           font-size: 12.5px;
           line-height: 1.35;
@@ -3574,6 +3825,9 @@ class EasyNotesCard extends HTMLElement {
         .board-add { margin-top: 8px; padding: 0 6px; }
         @media (max-width: 600px) {
           .bc { flex-basis: var(--easy-board-card-width, 170px); }
+          .board.wrap .bl-track {
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--easy-board-card-width, 145px)), 1fr));
+          }
         }
 
         /* Netzansicht */
@@ -3802,6 +4056,7 @@ class EasyNotesCard extends HTMLElement {
         }
         .ed-preview { overflow-y: auto; }
         .ed-preview.md-placeholder { font-size: 14px; }
+        .ed-hint.err { color: var(--error-color, #db4437); }
         .ed[data-mode="write"] .ed-preview { display: none; }
         .ed[data-mode="preview"] .ed-ta, .ed[data-mode="preview"] .ed-tools { display: none; }
         @media (min-width: 900px) {
@@ -3907,6 +4162,7 @@ class EasyNotesCard extends HTMLElement {
               <div class="menu" id="menu" role="menu">
                 <button type="button" class="menu-item" role="menuitem" data-act="export"><ha-svg-icon id="mi-export"></ha-svg-icon><span id="ml-export"></span></button>
                 <button type="button" class="menu-item" role="menuitem" data-act="export-zip"><ha-svg-icon id="mi-export-zip"></ha-svg-icon><span id="ml-export-zip"></span></button>
+                <button type="button" class="menu-item" role="menuitem" data-act="export-zip-img"><ha-svg-icon id="mi-export-zip-img"></ha-svg-icon><span id="ml-export-zip-img"></span></button>
                 <button type="button" class="menu-item" role="menuitem" data-act="copy"><ha-svg-icon id="mi-copy"></ha-svg-icon><span id="ml-copy"></span></button>
                 <button type="button" class="menu-item" role="menuitem" data-act="import"><ha-svg-icon id="mi-import"></ha-svg-icon><span id="ml-import"></span></button>
                 <button type="button" class="menu-item" role="menuitem" data-act="import-dir"><ha-svg-icon id="mi-import-dir"></ha-svg-icon><span id="ml-import-dir"></span></button>
@@ -3979,6 +4235,7 @@ class EasyNotesCard extends HTMLElement {
     $("backup-icon").path = mdiBackupRestore;
     $("mi-export").path = mdiFileExportOutline;
     $("mi-export-zip").path = mdiFolderZipOutline;
+    $("mi-export-zip-img").path = mdiImageOutline;
     $("mi-copy").path = mdiContentCopy;
     $("mi-import").path = mdiFileImportOutline;
     $("mi-import-dir").path = mdiFolderUploadOutline;
@@ -4021,6 +4278,7 @@ class EasyNotesCard extends HTMLElement {
       const act = item.dataset.act;
       if (act === "export") this._exportFile();
       else if (act === "export-zip") this._exportZip();
+      else if (act === "export-zip-img") this._exportZip({ images: true });
       else if (act === "copy") this._exportClipboard();
       else if (act === "import") this._elFile.click();
       else if (act === "import-dir") this._elDir.click();
@@ -4091,6 +4349,7 @@ class EasyNotesCard extends HTMLElement {
     this._elBackup.setAttribute("aria-label", this._t("backup"));
     this.shadowRoot.getElementById("ml-export").textContent = this._t("exportFile");
     this.shadowRoot.getElementById("ml-export-zip").textContent = this._t("exportZip");
+    this.shadowRoot.getElementById("ml-export-zip-img").textContent = this._t("exportZipImg");
     this.shadowRoot.getElementById("ml-copy").textContent = this._t("exportCopy");
     this.shadowRoot.getElementById("ml-import").textContent = this._t("importFile");
     this.shadowRoot.getElementById("ml-import-dir").textContent = this._t("importDir");
@@ -4241,6 +4500,7 @@ class EasyNotesCard extends HTMLElement {
     this._elCatwrap.style.display = graph || board ? "none" : "";
     if (graph || board) this._elMore.hidden = true;
     if (!board) {
+      this._closeBoardMenu({ focus: false, render: false });
       this._boardEls = null;
       this._elList.classList.remove("board-mode");
     }
@@ -4484,7 +4744,9 @@ class EasyNotesCard extends HTMLElement {
     const listed = new Set(this._catList.map((c) => c.toLowerCase()));
     const lanes = [...this._knownCategories(), null];
     const board = document.createElement("div");
-    board.className = "board";
+    const wrap = this._config.board_wrap === true;
+    board.className = "board" + (wrap ? " wrap" : "");
+    board.lang = this._locale(); // für Silbentrennung in schmalen Karten
 
     if (lanes.length === 1 && !this._notes.length) {
       const hint = document.createElement("div");
@@ -4592,6 +4854,10 @@ class EasyNotesCard extends HTMLElement {
 
     list.appendChild(board);
     list.scrollTop = keepTop;
+    if (this._boardMenu) {
+      if (this._notes.includes(this._boardMenu.note) && this._boardMenuBtn()) this._placeBoardMenu();
+      else this._closeBoardMenu({ focus: false, render: false });
+    }
     // Seitliche Scroll-Position der Zeilen erst im Dokument setzen (vorher wirkt sie nicht)
     for (const lane of board.querySelectorAll(".bl")) {
       if (keepLeft.has(lane.dataset.key)) lane.querySelector(".bl-track").scrollLeft = keepLeft.get(lane.dataset.key);
@@ -4622,6 +4888,20 @@ class EasyNotesCard extends HTMLElement {
       title.textContent = lines[0] || this._t("emptyNote");
       top.appendChild(title);
       if (!ro) {
+        const menuBtn = document.createElement("button");
+        menuBtn.type = "button";
+        menuBtn.className = "bc-menu";
+        menuBtn.title = this._t("boardMenu");
+        menuBtn.setAttribute("aria-label", this._t("boardMenu"));
+        menuBtn.setAttribute("aria-haspopup", "menu");
+        menuBtn.setAttribute("aria-expanded", String(!!(this._boardMenu && this._boardMenu.note === note)));
+        menuBtn.appendChild(this._icon(mdiMenu));
+        menuBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this._openBoardMenu(note, menuBtn);
+        });
+        menuBtn.addEventListener("keydown", (e) => e.stopPropagation());
+        top.appendChild(menuBtn);
         const handle = document.createElement("button");
         handle.type = "button";
         handle.className = "bc-handle";
@@ -4631,9 +4911,18 @@ class EasyNotesCard extends HTMLElement {
         handle.addEventListener("keydown", (e) => this._boardKey(e, note, cat));
         top.appendChild(handle);
       }
+      if (!lines.length && /!\[[^\]]*\]\([^)\s]+\)/.test(note.text)) title.textContent = this._t("imgNote");
       const snip = document.createElement("div");
       snip.className = "bc-snip";
       snip.textContent = lines.slice(1, 4).join(" ").slice(0, 200);
+      // Erstes Bild der Notiz als kleine Vorschau (z. B. Screenshot zur Aufgabe)
+      const im = /!\[([^\]\n]*)\]\(([^)\s]+)\)/.exec(note.text);
+      const thumbLink = im && easyImage(im[1], im[2]);
+      const thumb = thumbLink && thumbLink.querySelector("img");
+      if (thumb) {
+        thumb.className = "bc-thumb";
+        if (thumb.dataset.mediaPath) this._resolveMedia(thumbLink);
+      }
       const meta = document.createElement("div");
       meta.className = "bc-meta";
       // Checklisten-Fortschritt
@@ -4660,6 +4949,7 @@ class EasyNotesCard extends HTMLElement {
         meta.appendChild(cc);
       }
       card.replaceChildren(top);
+      if (thumb) card.appendChild(thumb);
       if (snip.textContent) card.appendChild(snip);
       if (meta.childNodes.length) card.appendChild(meta);
     };
@@ -4674,7 +4964,7 @@ class EasyNotesCard extends HTMLElement {
         card._dragged = false;
         return;
       }
-      if (e.target.closest && e.target.closest(".bc-handle")) return;
+      if (e.target.closest && e.target.closest(".bc-handle, .bc-menu")) return;
       open();
     });
     card.addEventListener("keydown", (e) => {
@@ -4692,9 +4982,243 @@ class EasyNotesCard extends HTMLElement {
     return card;
   }
 
+  // ---------- Board: Werkzeug-Menü einer Karte ----------
+  // Gleiche Werkzeuge wie an der Notiz-Kachel (Kategorien, Erinnerung, Farbe, Sichtbarkeit,
+  // Löschen), als schwebendes Menü an der Karte, damit man nicht die Ansicht wechseln muss.
+  _openBoardMenu(note, btn) {
+    const same = this._boardMenu && this._boardMenu.note === note;
+    this._closeBoardMenu({ focus: false });
+    if (same) return; // zweiter Klick auf denselben Knopf schließt nur
+
+    const pop = document.createElement("div");
+    pop.className = "bc-pop";
+    pop.setAttribute("role", "menu");
+    pop.setAttribute("aria-label", this._t("boardMenu"));
+    pop.style.setProperty("--c", this._colorValue(note.color));
+    const menu = { note, pop, btn, open: null, confirm: false, layoutDirty: false };
+    this._boardMenu = menu;
+    btn.setAttribute("aria-expanded", "true");
+
+    const items = [
+      { type: "cats", icon: mdiTagOutline, label: this._t("cats") },
+      this._remindersOn() ? { type: "reminder", icon: mdiBellOutline, label: this._t("remind") } : null,
+      { type: "color", icon: mdiPalette, label: this._t("color") },
+      this._visibilityOn() ? { type: "visibility", icon: mdiAccountMultipleOutline, label: this._t("visibility") } : null,
+      { type: "delete", icon: mdiDelete, label: this._t("del"), cls: "danger" },
+    ].filter(Boolean);
+    if (this._visibilityOn()) this._ensureUsers();
+
+    // Karte(n) dieser Notiz im Board aktualisieren, ohne das Board neu zu zeichnen
+    const refreshCards = () => {
+      for (const bc of (this._boardEls && this._boardEls.get(String(note.id))) || []) bc.fill();
+      this._boardMenuBtn(); // neuer Knopf nach dem Aktualisieren
+      pop.style.setProperty("--c", this._colorValue(note.color));
+      this._updateBadge();
+    };
+
+    const render = () => {
+      const focusType = this.shadowRoot.activeElement && this.shadowRoot.activeElement.dataset
+        ? this.shadowRoot.activeElement.dataset.menu
+        : null;
+      pop.replaceChildren();
+      for (const it of items) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "bc-pop-item" + (it.cls ? ` ${it.cls}` : "") + (menu.open === it.type ? " on" : "");
+        b.dataset.menu = it.type;
+        b.setAttribute("role", "menuitem");
+        if (it.type !== "delete") b.setAttribute("aria-expanded", String(menu.open === it.type));
+        const ic = this._icon(it.icon);
+        const lb = document.createElement("span");
+        lb.textContent = it.label;
+        b.append(ic, lb);
+        if (it.type === "reminder" && note.remind_at) {
+          const sub = document.createElement("span");
+          sub.className = "bc-pop-sub";
+          sub.textContent = this._fmtReminder(note.remind_at);
+          b.appendChild(sub);
+        }
+        b.addEventListener("click", () => {
+          if (it.type === "delete") {
+            menu.confirm = !menu.confirm;
+            menu.open = null;
+          } else {
+            menu.open = menu.open === it.type ? null : it.type;
+            menu.confirm = false;
+          }
+          render();
+          const inp = menu.open === "cats" && pop.querySelector(".cat-input");
+          if (inp) inp.focus();
+        });
+        pop.appendChild(b);
+
+        if (menu.open === it.type) {
+          const panel = document.createElement("div");
+          panel.className = "bc-pop-panel";
+          if (it.type === "color") {
+            panel.appendChild(this._panelColor(note, () => {
+              refreshCards();
+              render();
+            }));
+          } else if (it.type === "reminder") {
+            panel.appendChild(this._panelReminder(note, () => {
+              menu.open = null;
+              refreshCards();
+              render();
+            }));
+          } else if (it.type === "visibility") {
+            panel.appendChild(this._panelVis(note, () => {
+              refreshCards();
+              render();
+            }));
+          } else if (it.type === "cats") {
+            panel.appendChild(this._panelCats(note, ({ focus }) => {
+              // Die Karte wechselt evtl. die Zeile: Board erst nach dem Schließen neu zeichnen
+              menu.layoutDirty = true;
+              refreshCards();
+              render();
+              const inp = focus && pop.querySelector(".cat-input");
+              if (inp) inp.focus();
+            }));
+          }
+          pop.appendChild(panel);
+        }
+        if (it.type === "delete" && menu.confirm) {
+          const box = this._panelDelete(note, () => {
+            menu.confirm = false;
+            render();
+          });
+          box.classList.add("bc-pop-panel");
+          pop.appendChild(box);
+        }
+      }
+      if (focusType) {
+        const again = pop.querySelector(`[data-menu="${focusType}"]`);
+        if (again) again.focus();
+      }
+      this._placeBoardMenu();
+    };
+
+    // Escape schließt (auch aus Eingabefeldern, daher in der Capture-Phase)
+    pop.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        this._closeBoardMenu();
+      },
+      true
+    );
+    // Pfeile wandern durch die Einträge, keine HA-Tastenkürzel auslösen
+    pop.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target.classList.contains("bc-pop-item")) {
+        e.preventDefault();
+        const all = [...pop.querySelectorAll(".bc-pop-item")];
+        const i = all.indexOf(e.target);
+        const next = all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length];
+        if (next) next.focus();
+      }
+    });
+    // Klick außerhalb schließt
+    menu.outside = (e) => {
+      const path = e.composedPath ? e.composedPath() : [];
+      if (path.includes(pop) || path.includes(menu.btn)) return;
+      this._closeBoardMenu({ focus: false });
+    };
+    window.addEventListener("pointerdown", menu.outside, true);
+    // Position nachführen, wenn die Karte wandert (Scrollen im Dashboard, in der Liste oder Zeile)
+    let last = "";
+    const follow = () => {
+      if (this._boardMenu !== menu) return;
+      const b = this._boardMenuBtn();
+      if (!b) {
+        this._closeBoardMenu({ focus: false });
+        return;
+      }
+      const r = b.getBoundingClientRect();
+      const key = `${r.left},${r.top},${window.innerWidth},${window.innerHeight},${pop.offsetHeight}`;
+      if (key !== last) {
+        last = key;
+        this._placeBoardMenu();
+      }
+      menu.raf = requestAnimationFrame(follow);
+    };
+
+    this.shadowRoot.appendChild(pop);
+    render();
+    menu.raf = requestAnimationFrame(follow);
+    const first = pop.querySelector(".bc-pop-item");
+    if (first) first.focus();
+  }
+
+  // Aktueller Menü-Knopf der Notiz (Karten bauen ihn beim Aktualisieren neu)
+  _boardMenuBtn() {
+    const m = this._boardMenu;
+    if (!m) return null;
+    if (m.btn && m.btn.isConnected) return m.btn;
+    const cards = this._boardEls && this._boardEls.get(String(m.note.id));
+    const b = cards && cards.map((c) => c.el.querySelector(".bc-menu")).find((x) => x && x.isConnected);
+    if (b) {
+      m.btn = b;
+      b.setAttribute("aria-expanded", "true");
+    }
+    return b || null;
+  }
+
+  // Menü an den Knopf heften (unter, sonst über der Karte), im sichtbaren Bereich halten
+  _placeBoardMenu() {
+    const m = this._boardMenu;
+    if (!m) return;
+    const { pop } = m;
+    const btn = this._boardMenuBtn();
+    if (!btn) {
+      this._closeBoardMenu({ focus: false });
+      return;
+    }
+    pop.style.left = "0px";
+    pop.style.top = "0px";
+    // Versatz ausgleichen, falls ein Vorfahre fixed-Positionierung verschiebt
+    const o = pop.getBoundingClientRect();
+    const r = btn.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = o.width;
+    const h = o.height;
+    let x = Math.min(Math.max(8, r.right - w), vw - w - 8);
+    let y = r.bottom + 6;
+    if (y + h > vh - 8 && r.top - 6 - h >= 8) y = r.top - 6 - h;
+    y = Math.max(8, Math.min(y, vh - h - 8));
+    x = Math.max(8, x);
+    pop.style.left = `${Math.round(x - o.left)}px`;
+    pop.style.top = `${Math.round(y - o.top)}px`;
+  }
+
+  _closeBoardMenu({ focus = true, render = true } = {}) {
+    const m = this._boardMenu;
+    if (!m) return;
+    this._boardMenu = null;
+    window.removeEventListener("pointerdown", m.outside, true);
+    if (m.raf) cancelAnimationFrame(m.raf);
+    m.pop.remove();
+    if (m.btn.isConnected) m.btn.setAttribute("aria-expanded", "false");
+    if (render && (m.layoutDirty || this._needsRender)) {
+      this._needsRender = false;
+      this._render();
+    }
+    if (focus) {
+      // Fokus zurück zum Menü-Knopf (nach dem Neuzeichnen ggf. in der neuen Zeile)
+      const cards = this._boardEls && this._boardEls.get(String(m.note.id));
+      const b = cards && cards[0] && cards[0].el.querySelector(".bc-menu");
+      if (b) b.focus();
+    }
+  }
+
   // Maus: ganze Karte ziehbar. Touch/Stift: nur am Griff (sonst wischt man die Zeile)
   _boardPointerDown(e, card, note, cat) {
     if (e.button !== undefined && e.button > 0) return;
+    if (e.target.closest && e.target.closest(".bc-menu")) return;
     const onHandle = !!(e.target.closest && e.target.closest(".bc-handle"));
     if (e.pointerType !== "mouse" && !onHandle) return;
     if (onHandle) e.preventDefault();
@@ -4716,6 +5240,7 @@ class EasyNotesCard extends HTMLElement {
   }
 
   _boardDrag(ev0, card, note, fromCat, start) {
+    this._closeBoardMenu({ focus: false });
     const list = this._elList;
     const r0 = card.getBoundingClientRect();
     const grab = { x: start.x - r0.left, y: start.y - r0.top };
@@ -4749,16 +5274,21 @@ class EasyNotesCard extends HTMLElement {
       if (lane) {
         const track = lane.querySelector(".bl-track");
         const cards = [...track.querySelectorAll(".bc")].filter((c) => c !== card);
+        const wrapped = track.parentNode && track.closest(".board.wrap");
         const before = cards.find((c) => {
           const r = c.getBoundingClientRect();
+          // Mehrere Reihen: Karten in einer tieferen Reihe stehen hinter dem Zeiger
+          if (wrapped) return ev.clientY < r.top || (ev.clientY <= r.bottom && ev.clientX < r.left + r.width / 2);
           return ev.clientX < r.left + r.width / 2;
         });
         const ref = before || track.querySelector(".bl-empty");
         if (card.parentNode !== track || card.nextSibling !== ref) track.insertBefore(card, ref);
         // Zeile seitlich mitscrollen
-        const tr = track.getBoundingClientRect();
-        if (ev.clientX < tr.left + 40) track.scrollLeft -= 14;
-        else if (ev.clientX > tr.right - 40) track.scrollLeft += 14;
+        if (!wrapped) {
+          const tr = track.getBoundingClientRect();
+          if (ev.clientX < tr.left + 40) track.scrollLeft -= 14;
+          else if (ev.clientX > tr.right - 40) track.scrollLeft += 14;
+        }
       }
       if (list.scrollHeight > list.clientHeight) {
         const lr = list.getBoundingClientRect();
@@ -5180,7 +5710,7 @@ class EasyNotesCard extends HTMLElement {
       view.replaceChildren();
       if (note.text.trim()) {
         view.classList.remove("md-placeholder");
-        view.appendChild(easyMdRender(note.text, readOnly ? {} : { onToggle: (line) => toggleTask(line) }));
+        view.appendChild(this._md(note.text, readOnly ? {} : { onToggle: (line) => toggleTask(line) }));
       } else {
         view.classList.add("md-placeholder");
         view.textContent = this._t("placeholder");
@@ -5241,6 +5771,7 @@ class EasyNotesCard extends HTMLElement {
         }
       });
       ta.addEventListener("blur", exitEdit);
+      ta.addEventListener("paste", (e) => this._pasteImages(e, insertImage));
       body.replaceChildren(ta);
       this._autosize(ta);
       ta.focus();
@@ -5252,6 +5783,24 @@ class EasyNotesCard extends HTMLElement {
     };
     rec.edit = enterEdit;
     rec.renderView = renderView;
+
+    // Hochgeladenes Bild einfügen: ins offene Textfeld, sonst ans Ende der Notiz
+    const insertImage = (md) => {
+      if (ta && ta.isConnected) {
+        const v = ta.value;
+        const s0 = ta.selectionStart;
+        const e0 = ta.selectionEnd;
+        const pre = s0 > 0 && v[s0 - 1] !== "\n" ? "\n" : "";
+        const post = e0 < v.length && v[e0] !== "\n" ? "\n" : "";
+        ta.setRangeText(`${pre}${md}${post}`, s0, e0, "end");
+        ta.dispatchEvent(new Event("input"));
+      } else {
+        note.text = note.text.replace(/\s+$/, "") + (note.text.trim() ? "\n\n" : "") + md;
+        note.updated = new Date().toISOString();
+        renderView();
+        this._scheduleSave();
+      }
+    };
 
     view.addEventListener("click", (e) => {
       const t = e.target;
@@ -5310,25 +5859,8 @@ class EasyNotesCard extends HTMLElement {
     };
     rec.refresh = refresh;
 
-    const addCats = (raw) => {
-      const parts = String(raw || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => this._canonicalCat(s)); // vorhandene Schreibweise, keine Doppelten
-      if (!parts.length) return false;
-      const next = easyCleanCats([...(note.categories || []), ...parts]);
-      if (next.length === (note.categories || []).length) return false;
-      this._rememberCats(next); // vor dem Zuweisen: neue Kategorien stehen danach überall zur Auswahl
-      note.categories = next;
-      this._scheduleSave();
-      refresh();
-      this._renderCatbar();
-      return true;
-    };
-
     // --- Panel zeichnen ---
-    const panelBtns = { visibility: visBtn, cats: tagBtn, color: palBtn, reminder: bellBtn };
+    const panelBtns = { visibility: visBtn, cats: tagBtn, color: palBtn, reminder: bellBtn, delete: delBtn };
     const renderPanel = () => {
       panel.replaceChildren();
       panel.classList.toggle("open", !!panelType);
@@ -5338,219 +5870,36 @@ class EasyNotesCard extends HTMLElement {
         b.classList.toggle("on", panelType === type);
         b.setAttribute("aria-expanded", String(panelType === type));
       }
+      // Die Panels selbst sind gemeinsame Methoden (auch für das Board-Menü)
       if (panelType === "color") {
-        const wrap = document.createElement("div");
-        wrap.className = "swatches";
-        const names = this._t("colors");
-        for (const key of EASY_COLOR_KEYS) {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "swatch" + (note.color === key ? " sel" : "");
-          b.style.background = this._colorValue(key);
-          b.title = names[key];
-          b.setAttribute("aria-label", names[key]);
-          b.addEventListener("click", () => {
-            note.color = key;
-            refresh();
-            renderPanel();
-            this._scheduleSave();
-          });
-          wrap.appendChild(b);
-        }
-        panel.appendChild(wrap);
+        panel.appendChild(this._panelColor(note, () => {
+          refresh();
+          renderPanel();
+        }));
       } else if (panelType === "reminder") {
-        const input = document.createElement("input");
-        input.type = "datetime-local";
-        input.className = "dt";
-        input.min = easyToLocalInput(new Date());
-        input.setAttribute("aria-label", this._t("remind"));
-        if (note.remind_at) input.value = easyToLocalInput(new Date(note.remind_at));
-        input.addEventListener("change", () => {
-          const d = new Date(input.value);
-          if (input.value && !isNaN(d.getTime())) {
-            panelType = null;
-            renderPanel();
-            setReminder(d);
-          }
-        });
-        input.addEventListener("keydown", (e) => e.stopPropagation());
-        panel.appendChild(input);
-
-        const chips = document.createElement("div");
-        chips.className = "chips";
-        const presets = [
-          ["in15", () => new Date(Date.now() + 15 * 60000)],
-          ["in1h", () => new Date(Date.now() + 60 * 60000)],
-          [
-            "tomorrow",
-            () => {
-              const d = new Date();
-              d.setDate(d.getDate() + 1);
-              d.setHours(9, 0, 0, 0);
-              return d;
-            },
-          ],
-        ];
-        for (const [key, make] of presets) {
-          const b = this._btn({ label: this._t(key), appearance: "outlined", size: "xs" });
-          b.addEventListener("click", () => {
-            panelType = null;
-            renderPanel();
-            setReminder(make());
-          });
-          chips.appendChild(b);
-        }
-        if (note.remind_at) {
-          const rm = this._btn({ label: this._t("remindRemove"), variant: "danger", size: "xs" });
-          rm.addEventListener("click", () => {
-            panelType = null;
-            renderPanel();
-            clearReminder();
-          });
-          chips.appendChild(rm);
-        }
-        panel.appendChild(chips);
+        panel.appendChild(this._panelReminder(note, () => {
+          panelType = null;
+          renderPanel();
+          refresh();
+        }));
       } else if (panelType === "visibility") {
-        const box = document.createElement("div");
-        box.className = "vis-list";
-        const users = this._users;
-        if (!users) {
-          box.textContent = this._t("visLoading");
-        } else {
-          const restricted = Array.isArray(note.visible_to);
-          const row = (label, checked, onChange, cls = "") => {
-            const l = document.createElement("label");
-            l.className = `vis-row ${cls}`.trim();
-            const cb = document.createElement("input");
-            cb.type = "checkbox";
-            cb.checked = checked;
-            cb.addEventListener("change", () => onChange(cb.checked));
-            const span = document.createElement("span");
-            span.textContent = label;
-            l.append(cb, span);
-            box.appendChild(l);
-            return cb;
-          };
-          const apply = (list) => {
-            if (list === null) delete note.visible_to;
-            else note.visible_to = list;
-            this._scheduleSave();
-            refresh();
-            renderPanel();
-          };
-          row(this._t("visAll"), !restricted, (on) => apply(on ? null : []), "vis-all");
-          for (const u of users) {
-            const sel = restricted && note.visible_to.includes(u.id);
-            row(u.name, sel, (on) => {
-              const cur = Array.isArray(note.visible_to) ? note.visible_to : [];
-              apply(on ? [...cur, u.id] : cur.filter((x) => x !== u.id));
-            });
-          }
-          const hint = document.createElement("div");
-          hint.className = "vis-hint";
-          hint.textContent = this._usersError
-            ? this._t("visUsersError")
-            : !users.length
-              ? `${this._t("visNoUsers")} ${this._t("visAdminsHint")}`
-              : restricted && !note.visible_to.length
-                ? `${this._t("visOnlyAdmins")}. ${this._t("visAdminsHint")}`
-                : this._t("visAdminsHint");
-          box.appendChild(hint);
-        }
-        panel.appendChild(box);
+        panel.appendChild(this._panelVis(note, () => {
+          refresh();
+          renderPanel();
+        }));
+      } else if (panelType === "delete") {
+        panel.appendChild(this._panelDelete(note, () => {
+          panelType = null;
+          renderPanel();
+        }));
       } else if (panelType === "cats") {
-        // Zugewiesene Kategorien (entfernbar)
-        if ((note.categories || []).length) {
-          const current = document.createElement("div");
-          current.className = "chips";
-          for (const c of note.categories) {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "cat-chip removable";
-            const label = this._t("catRemove").replace("{c}", c);
-            b.title = label;
-            b.setAttribute("aria-label", label);
-            const s = document.createElement("span");
-            s.textContent = `# ${c}`;
-            const x = this._icon(mdiClose);
-            x.classList.add("x");
-            b.append(s, x);
-            b.addEventListener("click", () => {
-              note.categories = note.categories.filter((v) => v !== c);
-              this._scheduleSave();
-              refresh();
-              this._renderCatbar();
-              renderPanel();
-              const inp = panel.querySelector(".cat-input");
-              if (inp) inp.focus();
-            });
-            current.appendChild(b);
-          }
-          panel.appendChild(current);
-        }
-
-        // Eingabe mit Autovervollständigung, daneben Auswahl der vorhandenen Kategorien
-        const have = new Set((note.categories || []).map((c) => c.toLowerCase()));
-        const known = this._knownCategories().filter((c) => !have.has(c.toLowerCase()));
-        const row = document.createElement("div");
-        row.className = "cat-row";
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "cat-input";
-        input.placeholder = this._t("catAdd");
-        input.setAttribute("aria-label", this._t("catAdd"));
-        input.setAttribute("autocomplete", "off");
-        input.maxLength = 120;
-        const addBtn = this._btn({ label: this._t("catAddBtn"), appearance: "outlined", size: "s" });
-        const commit = () => {
-          if (addCats(input.value)) {
-            renderPanel();
-            const inp = panel.querySelector(".cat-input");
-            if (inp) inp.focus();
-          } else {
-            input.value = "";
-          }
-        };
-        this._catAutocomplete(input, () => known);
-        input.addEventListener("keydown", (e) => {
-          e.stopPropagation();
-          if (e.key === "Enter") {
-            e.preventDefault();
-            commit();
-          }
-        });
-        addBtn.addEventListener("click", commit);
-        row.append(input, addBtn);
-        if (known.length) {
-          const select = this._catSelect(known, (v) => {
-            addCats(v);
-            renderPanel();
-            const inp = panel.querySelector(".cat-input");
-            if (inp) inp.focus();
-          });
-          select.addEventListener("keydown", (e) => e.stopPropagation());
-          row.appendChild(select);
-        }
-        panel.appendChild(row);
-
-        // Vorschläge aus vorhandenen Kategorien
-        const sugg = known.slice(0, 10);
-        if (sugg.length) {
-          const wrap = document.createElement("div");
-          wrap.className = "chips";
-          for (const c of sugg) {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "cat-chip suggest";
-            b.textContent = `+ ${c}`;
-            b.addEventListener("click", () => {
-              addCats(c);
-              renderPanel();
-            });
-            wrap.appendChild(b);
-          }
-          panel.appendChild(wrap);
-        }
+        panel.appendChild(this._panelCats(note, ({ focus }) => {
+          refresh();
+          this._renderCatbar();
+          renderPanel();
+          const inp = focus && panel.querySelector(".cat-input");
+          if (inp) inp.focus();
+        }));
       }
     };
 
@@ -5569,20 +5918,11 @@ class EasyNotesCard extends HTMLElement {
     };
 
     const setReminder = (d) => {
-      this._dismissSidebar(note);
-      note.remind_at = d.toISOString();
-      delete note.notified;
-      this._notifyFailed.delete(id);
-      this._scheduleSave();
+      this._setReminder(note, d);
       refresh();
-      this._tick();
     };
     const clearReminder = () => {
-      this._dismissSidebar(note);
-      delete note.remind_at;
-      delete note.notified;
-      this._notifyFailed.delete(id);
-      this._scheduleSave();
+      this._clearReminder(note);
       refresh();
     };
 
@@ -5597,10 +5937,9 @@ class EasyNotesCard extends HTMLElement {
     doneBtn.addEventListener("click", () => clearReminder());
 
     delBtn.addEventListener("click", () => {
-      this._dismissSidebar(note);
-      this._notes = this._notes.filter((n) => n !== note);
-      this._render();
-      this._scheduleSave();
+      // Mit Bildern erst nachfragen (sie werden mit gelöscht bzw. bleiben liegen)
+      if (this._ownImagesOf(note).length) togglePanel("delete");
+      else this._deleteNote(note);
     });
 
     handle.addEventListener("pointerdown", (e) => this._startDrag(e, el, note));
@@ -5619,6 +5958,520 @@ class EasyNotesCard extends HTMLElement {
 
     refresh();
     return el;
+  }
+
+  // ---------- Bilder (Screenshots) ----------
+  // Markdown rendern und Bilder aus dem HA-Medienordner mit signierter Adresse laden
+  _md(text, opts) {
+    const el = easyMdRender(text, opts);
+    this._resolveMedia(el);
+    return el;
+  }
+
+  _resolveMedia(root) {
+    if (!root || !this._hass) return;
+    for (const img of root.querySelectorAll("img[data-media-path]")) {
+      const path = img.dataset.mediaPath;
+      this._signMedia(path)
+        .then((url) => {
+          img.src = url;
+          const a = img.closest("a");
+          if (a) a.href = url;
+        })
+        .catch(() => {
+          img.classList.add("md-img-missing");
+          img.title = path;
+        });
+    }
+  }
+
+  // Signierte Adresse für /media/… (gilt 24 h, wird zwischengespeichert)
+  _signMedia(path) {
+    this._mediaUrls = this._mediaUrls || new Map();
+    const hit = this._mediaUrls.get(path);
+    if (hit && hit.until > Date.now()) return hit.p;
+    const p = Promise.resolve(this._hass.callWS({ type: "auth/sign_path", path, expires: 86400 })).then((r) => {
+      if (!r || !r.path) throw new Error("sign_path");
+      return this._hass.hassUrl ? this._hass.hassUrl(r.path) : r.path;
+    });
+    this._mediaUrls.set(path, { p, until: Date.now() + 23 * 3600 * 1000 });
+    p.catch(() => this._mediaUrls.delete(path));
+    return p;
+  }
+
+  // Bild in den HA-Medienordner hochladen (nur Admins). Liefert den Pfad /media/…
+  async _uploadImage(file, fixedName = null) {
+    const hass = this._hass;
+    const ext = ((file.type || "").split("/")[1] || "png").replace("jpeg", "jpg").replace(/[^a-z0-9]/gi, "") || "png";
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    const name = fixedName || `easy-notes-${stamp}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+    const send = async (target) => {
+      const fd = new FormData();
+      fd.append("media_content_id", target);
+      fd.append("file", file, name);
+      const url = "/api/media_source/local_source/upload";
+      const res =
+        typeof hass.fetchWithAuth === "function"
+          ? await hass.fetchWithAuth(url, { method: "POST", body: fd })
+          : await fetch(hass.hassUrl ? hass.hassUrl(url) : url, {
+              method: "POST",
+              body: fd,
+              headers: { Authorization: `Bearer ${hass.auth && hass.auth.data && hass.auth.data.access_token}` },
+            });
+      if (!res.ok) {
+        const err = new Error(`Upload ${res.status}`);
+        err.status = res.status;
+        throw err;
+      }
+      return (await res.json()).media_content_id;
+    };
+    let id;
+    try {
+      // Eigener Unterordner; ältere HA-Versionen legen ihn nicht an, dann ins Hauptverzeichnis
+      id = await send(`media-source://media_source/local/${EASY_IMG_FOLDER}`);
+    } catch (e) {
+      if (e.status === 401 || e.status === 403) throw e;
+      id = await send("media-source://media_source/local");
+    }
+    const m = /^media-source:\/\/media_source\/(.+)$/.exec(String(id || ""));
+    if (!m) throw new Error("Unerwartete Antwort");
+    return `/media/${m[1].split("/").map(encodeURIComponent).join("/")}`;
+  }
+
+  // Von Easy Notes hochgeladenes Bild? (nur solche werden beim Löschen mit entfernt)
+  _isOwnImage(path) {
+    let p;
+    try {
+      p = decodeURIComponent(path);
+    } catch (_) {
+      return false;
+    }
+    return (
+      p.startsWith(`/media/local/${EASY_IMG_FOLDER}/`) ||
+      p.startsWith("/media/local/easy_notes/") ||
+      /^\/media\/local\/easy-notes-[^/]+$/.test(p)
+    );
+  }
+
+  // Eigene Bilder einer Notiz, die keine andere Notiz mehr verwendet
+  _ownImagesOf(note) {
+    const others = new Set();
+    for (const n of this._notes) if (n !== note) for (const im of easyMediaImages(n.text)) others.add(im);
+    return easyMediaImages(note.text).filter((p) => this._isOwnImage(p) && !others.has(p));
+  }
+
+  _isAdmin() {
+    return !(this._hass && this._hass.user && this._hass.user.is_admin === false);
+  }
+
+  // Bilder aus dem HA-Medienordner löschen (nur Admins). Fehlt eine Datei schon, ist das in Ordnung
+  async _removeImages(paths) {
+    if (!paths.length) return;
+    if (!this._isAdmin()) {
+      this._setError(this._t("imgsKept").replace("{x}", paths.length));
+      return;
+    }
+    let failed = 0;
+    for (const path of paths) {
+      try {
+        const id = `media-source://media_source/${decodeURIComponent(path.slice("/media/".length))}`;
+        await this._hass.callWS({ type: "media_source/local_source/remove", media_content_id: id });
+        if (this._mediaUrls) this._mediaUrls.delete(path);
+      } catch (e) {
+        if (e && e.code === "not_found") continue;
+        console.warn("Easy Notes: Bild konnte nicht gelöscht werden", path, e);
+        failed++;
+      }
+    }
+    if (failed) this._setError(this._t("imgsDeleteFail").replace("{x}", failed));
+  }
+
+  // Rückfrage vor dem Löschen (mit Hinweis auf die Bilder). cancel() schließt sie
+  _panelDelete(note, cancel) {
+    const box = document.createElement("div");
+    box.className = "del-confirm";
+    const q = document.createElement("div");
+    q.className = "del-q";
+    q.textContent = this._t("menuDeleteQ");
+    box.appendChild(q);
+    const imgs = this._ownImagesOf(note);
+    if (imgs.length) {
+      const hint = document.createElement("div");
+      hint.className = "del-hint";
+      hint.textContent = this._t(this._isAdmin() ? "delImgs" : "delImgsKeep").replace("{x}", imgs.length);
+      box.appendChild(hint);
+    }
+    const row = document.createElement("div");
+    row.className = "del-row";
+    const no = this._btn({ label: this._t("cancel"), size: "s" });
+    no.addEventListener("click", cancel);
+    const yes = this._btn({ label: this._t("menuDeleteYes"), appearance: "filled", variant: "danger", size: "s" });
+    yes.addEventListener("click", () => this._deleteNote(note));
+    row.append(no, yes);
+    box.appendChild(row);
+    return box;
+  }
+
+  // Bilder hochladen und als Markdown einfügen
+  async _insertImages(files, insert) {
+    const list = [...(files || [])].filter((f) => f && /^image\//.test(f.type || ""));
+    if (!list.length) return;
+    if (this._readOnly() || (this._hass && this._hass.user && this._hass.user.is_admin === false)) {
+      this._imgStatus(this._t("imgNoAdmin"), true);
+      return;
+    }
+    for (const f of list) {
+      if (f.size > EASY_MAX_IMAGE_BYTES) {
+        this._imgStatus(this._t("imgTooBig"), true);
+        continue;
+      }
+      this._imgStatus(this._t("imgUploading"));
+      try {
+        const path = await this._uploadImage(f);
+        insert(`![${this._t("imgAlt")}](${path})`);
+        this._imgStatus(this._t("imgUploaded"));
+      } catch (e) {
+        console.warn("Easy Notes: Bild-Upload fehlgeschlagen", e);
+        this._imgStatus(this._t(e && (e.status === 401 || e.status === 403) ? "imgNoAdmin" : "imgError"), true);
+      }
+    }
+  }
+
+  // Rückmeldung zum Upload: im offenen Editor in dessen Fußzeile, sonst in der Card
+  _imgStatus(msg, error = false) {
+    const ed = this._ed;
+    if (ed && ed.note) {
+      const hint = ed.dlg.querySelector(".ed-hint");
+      hint.textContent = msg;
+      hint.classList.toggle("err", error);
+      clearTimeout(ed.hintTimer);
+      ed.hintTimer = setTimeout(() => {
+        hint.textContent = this._t("saveHint");
+        hint.classList.remove("err");
+      }, error ? 9000 : 4000);
+      return;
+    }
+    if (error) {
+      this._setMessage(null);
+      this._setError(msg);
+    } else {
+      this._setMessage(msg);
+    }
+  }
+
+  // Einfügen (Strg+V): nur reagieren, wenn ein Bild in der Zwischenablage ist
+  _pasteImages(e, insert) {
+    const items = [...((e.clipboardData && e.clipboardData.items) || [])];
+    const files = items
+      .filter((i) => i.kind === "file" && /^image\//.test(i.type))
+      .map((i) => i.getAsFile())
+      .filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault();
+    this._insertImages(files, insert);
+  }
+
+  // Editor: Bilddatei auswählen (z. B. Screenshot aus der Galerie am Handy)
+  _edPickImage() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.style.display = "none";
+    input.addEventListener("change", () => {
+      this._insertImages(input.files, (md) => this._edInsertBlock(md));
+      input.remove();
+    });
+    this.shadowRoot.appendChild(input);
+    input.click();
+  }
+
+  // Editor: Text als eigene Zeile an der Cursor-Position einfügen
+  _edInsertBlock(md) {
+    const ed = this._ed;
+    if (!ed || !ed.note) return;
+    const ta = ed.ta;
+    const v = ta.value;
+    const s0 = ta.selectionStart;
+    const e0 = ta.selectionEnd;
+    const pre = s0 > 0 && v[s0 - 1] !== "\n" ? "\n" : "";
+    const post = e0 < v.length && v[e0] !== "\n" ? "\n" : "";
+    const text = `${pre}${md}${post}`;
+    const pos = s0 + text.length;
+    this._edReplace(s0, e0, text, pos, pos);
+  }
+
+  // ---------- Werkzeuge einer Notiz (Notiz-Kachel und Board-Menü) ----------
+  _setReminder(note, d) {
+    this._dismissSidebar(note);
+    note.remind_at = d.toISOString();
+    delete note.notified;
+    this._notifyFailed.delete(String(note.id));
+    this._scheduleSave();
+    this._tick();
+  }
+
+  _clearReminder(note) {
+    this._dismissSidebar(note);
+    delete note.remind_at;
+    delete note.notified;
+    this._notifyFailed.delete(String(note.id));
+    this._scheduleSave();
+  }
+
+  // Kategorien hinzufügen (kommagetrennt). true = geändert
+  _addNoteCats(note, raw) {
+    const parts = String(raw || "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((x) => this._canonicalCat(x)); // vorhandene Schreibweise, keine Doppelten
+    if (!parts.length) return false;
+    const next = easyCleanCats([...(note.categories || []), ...parts]);
+    if (next.length === (note.categories || []).length) return false;
+    this._rememberCats(next); // vor dem Zuweisen: neue Kategorien stehen danach überall zur Auswahl
+    note.categories = next;
+    this._scheduleSave();
+    return true;
+  }
+
+  // Farbe wählen. done() nach jeder Änderung
+  _panelColor(note, done) {
+    const wrap = document.createElement("div");
+    wrap.className = "swatches";
+    const names = this._t("colors");
+    for (const key of EASY_COLOR_KEYS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch" + (note.color === key ? " sel" : "");
+      b.style.background = this._colorValue(key);
+      b.title = names[key];
+      b.setAttribute("aria-label", names[key]);
+      b.addEventListener("click", () => {
+        note.color = key;
+        this._scheduleSave();
+        done();
+      });
+      wrap.appendChild(b);
+    }
+    // Eigene Farbe über das Farbfeld des Browsers (keine Code-Eingabe nötig)
+    const own = EASY_HEX_RE.test(String(note.color));
+    const label = document.createElement("label");
+    label.className = "swatch swatch-custom" + (own ? " sel" : "");
+    label.title = this._t("colorCustom");
+    if (own) label.style.background = note.color;
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = own ? note.color : "#2196f3";
+    input.setAttribute("aria-label", this._t("colorCustom"));
+    input.addEventListener("change", () => {
+      note.color = input.value;
+      this._scheduleSave();
+      done();
+    });
+    label.appendChild(input);
+    wrap.appendChild(label);
+    return wrap;
+  }
+
+  // Erinnerung setzen/entfernen. done() danach (Panel schließen)
+  _panelReminder(note, done) {
+    const frag = document.createDocumentFragment();
+    const input = document.createElement("input");
+    input.type = "datetime-local";
+    input.className = "dt";
+    input.min = easyToLocalInput(new Date());
+    input.setAttribute("aria-label", this._t("remind"));
+    if (note.remind_at) input.value = easyToLocalInput(new Date(note.remind_at));
+    input.addEventListener("change", () => {
+      const d = new Date(input.value);
+      if (input.value && !isNaN(d.getTime())) {
+        this._setReminder(note, d);
+        done();
+      }
+    });
+    input.addEventListener("keydown", (e) => e.stopPropagation());
+    frag.appendChild(input);
+
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    const presets = [
+      ["in15", () => new Date(Date.now() + 15 * 60000)],
+      ["in1h", () => new Date(Date.now() + 60 * 60000)],
+      [
+        "tomorrow",
+        () => {
+          const d = new Date();
+          d.setDate(d.getDate() + 1);
+          d.setHours(9, 0, 0, 0);
+          return d;
+        },
+      ],
+    ];
+    for (const [key, make] of presets) {
+      const b = this._btn({ label: this._t(key), appearance: "outlined", size: "xs" });
+      b.addEventListener("click", () => {
+        this._setReminder(note, make());
+        done();
+      });
+      chips.appendChild(b);
+    }
+    if (note.remind_at) {
+      const rm = this._btn({ label: this._t("remindRemove"), variant: "danger", size: "xs" });
+      rm.addEventListener("click", () => {
+        this._clearReminder(note);
+        done();
+      });
+      chips.appendChild(rm);
+    }
+    frag.appendChild(chips);
+    return frag;
+  }
+
+  // Sichtbarkeit pro Notiz. done() nach jeder Änderung
+  _panelVis(note, done) {
+    const box = document.createElement("div");
+    box.className = "vis-list";
+    const users = this._users;
+    if (!users) {
+      box.textContent = this._t("visLoading");
+      return box;
+    }
+    const restricted = Array.isArray(note.visible_to);
+    const row = (label, checked, onChange, cls = "") => {
+      const l = document.createElement("label");
+      l.className = `vis-row ${cls}`.trim();
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = checked;
+      cb.addEventListener("change", () => onChange(cb.checked));
+      const span = document.createElement("span");
+      span.textContent = label;
+      l.append(cb, span);
+      box.appendChild(l);
+    };
+    const apply = (list) => {
+      if (list === null) delete note.visible_to;
+      else note.visible_to = list;
+      this._scheduleSave();
+      done();
+    };
+    row(this._t("visAll"), !restricted, (on) => apply(on ? null : []), "vis-all");
+    for (const u of users) {
+      const sel = restricted && note.visible_to.includes(u.id);
+      row(u.name, sel, (on) => {
+        const cur = Array.isArray(note.visible_to) ? note.visible_to : [];
+        apply(on ? [...cur, u.id] : cur.filter((x) => x !== u.id));
+      });
+    }
+    const hint = document.createElement("div");
+    hint.className = "vis-hint";
+    hint.textContent = this._usersError
+      ? this._t("visUsersError")
+      : !users.length
+        ? `${this._t("visNoUsers")} ${this._t("visAdminsHint")}`
+        : restricted && !note.visible_to.length
+          ? `${this._t("visOnlyAdmins")}. ${this._t("visAdminsHint")}`
+          : this._t("visAdminsHint");
+    box.appendChild(hint);
+    return box;
+  }
+
+  // Kategorien: zugewiesene (entfernbar), Eingabe mit Autovervollständigung, Auswahl, Vorschläge.
+  // done({ focus }) nach jeder Änderung; focus = Eingabefeld danach wieder fokussieren
+  _panelCats(note, done) {
+    const frag = document.createDocumentFragment();
+    if ((note.categories || []).length) {
+      const current = document.createElement("div");
+      current.className = "chips";
+      for (const c of note.categories) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "cat-chip removable";
+        const label = this._t("catRemove").replace("{c}", c);
+        b.title = label;
+        b.setAttribute("aria-label", label);
+        const sp = document.createElement("span");
+        sp.textContent = `# ${c}`;
+        const x = this._icon(mdiClose);
+        x.classList.add("x");
+        b.append(sp, x);
+        b.addEventListener("click", () => {
+          note.categories = note.categories.filter((v) => v !== c);
+          this._scheduleSave();
+          done({ focus: true });
+        });
+        current.appendChild(b);
+      }
+      frag.appendChild(current);
+    }
+
+    const have = new Set((note.categories || []).map((c) => c.toLowerCase()));
+    const known = this._knownCategories().filter((c) => !have.has(c.toLowerCase()));
+    const row = document.createElement("div");
+    row.className = "cat-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "cat-input";
+    input.placeholder = this._t("catAdd");
+    input.setAttribute("aria-label", this._t("catAdd"));
+    input.maxLength = 120;
+    const addBtn = this._btn({ label: this._t("catAddBtn"), appearance: "outlined", size: "s" });
+    const commit = () => {
+      if (this._addNoteCats(note, input.value)) done({ focus: true });
+      else input.value = "";
+    };
+    this._catAutocomplete(input, () => known);
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      }
+    });
+    addBtn.addEventListener("click", commit);
+    row.append(input, addBtn);
+    if (known.length) {
+      const select = this._catSelect(known, (v) => {
+        this._addNoteCats(note, v);
+        done({ focus: true });
+      });
+      select.addEventListener("keydown", (e) => e.stopPropagation());
+      row.appendChild(select);
+    }
+    frag.appendChild(row);
+
+    const sugg = known.slice(0, 10);
+    if (sugg.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "chips";
+      for (const c of sugg) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "cat-chip suggest";
+        b.textContent = `+ ${c}`;
+        b.addEventListener("click", () => {
+          this._addNoteCats(note, c);
+          done({ focus: false });
+        });
+        wrap.appendChild(b);
+      }
+      frag.appendChild(wrap);
+    }
+    return frag;
+  }
+
+  // Notiz löschen (Kachel und Board-Menü), ihre eigenen Bilder im Medienordner mit
+  _deleteNote(note) {
+    if (this._boardMenu && this._boardMenu.note === note) this._closeBoardMenu({ focus: false, render: false });
+    const imgs = this._ownImagesOf(note);
+    this._dismissSidebar(note);
+    this._notes = this._notes.filter((n) => n !== note);
+    this._render();
+    this._scheduleSave();
+    if (imgs.length) this._removeImages(imgs);
   }
 
   // ---------- Verschieben (Maus und Touch) ----------
@@ -5803,12 +6656,13 @@ class EasyNotesCard extends HTMLElement {
       codeblock: mdiCodeBraces,
       link: mdiLinkVariant,
       hr: mdiMinus,
+      image: mdiImageOutline,
     };
     const groups = [
       ["h1", "h2", "h3", "text"],
       ["bold", "italic", "strike", "code"],
       ["ul", "ol", "task", "quote"],
-      ["codeblock", "link", "hr"],
+      ["codeblock", "link", "hr", "image"],
     ];
     const tools = $(".ed-tools");
     groups.forEach((g, gi) => {
@@ -5848,6 +6702,17 @@ class EasyNotesCard extends HTMLElement {
     ed.confirm.append(keep, discard);
 
     ed.ta.addEventListener("input", () => this._edPreviewSoon());
+    // Screenshot aus der Zwischenablage oder Bilddatei hineinziehen
+    ed.ta.addEventListener("paste", (e) => this._pasteImages(e, (md) => this._edInsertBlock(md)));
+    ed.ta.addEventListener("dragover", (e) => {
+      if (e.dataTransfer && [...(e.dataTransfer.items || [])].some((i) => i.kind === "file")) e.preventDefault();
+    });
+    ed.ta.addEventListener("drop", (e) => {
+      const files = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter((f) => /^image\//.test(f.type));
+      if (!files.length) return;
+      e.preventDefault();
+      this._insertImages(files, (md) => this._edInsertBlock(md));
+    });
     dlg.addEventListener("keydown", (e) => {
       e.stopPropagation(); // keine HA-Tastenkürzel auslösen
       const mod = e.ctrlKey || e.metaKey;
@@ -5936,7 +6801,7 @@ class EasyNotesCard extends HTMLElement {
     ed.preview.replaceChildren();
     if (ed.ta.value.trim()) {
       ed.preview.classList.remove("md-placeholder");
-      ed.preview.appendChild(easyMdRender(ed.ta.value));
+      ed.preview.appendChild(this._md(ed.ta.value));
     } else {
       ed.preview.classList.add("md-placeholder");
       ed.preview.textContent = this._t("previewEmpty");
@@ -6143,6 +7008,8 @@ class EasyNotesCard extends HTMLElement {
         return this._edLink();
       case "hr":
         return this._edHr();
+      case "image":
+        return this._edPickImage();
       default:
         return this._edLines(kind);
     }
@@ -6398,7 +7265,9 @@ class EasyNotesCard extends HTMLElement {
     for (const raw of parsed.notes) {
       const src = parsed.structured ? raw : { text: raw.text, categories: raw.categories, updated: raw.updated };
       const n = this._normalize(src);
-      if (!EASY_COLOR_KEYS.includes(n.color) && !String(n.color).startsWith("var(")) n.color = "blue";
+      if (!EASY_COLOR_KEYS.includes(n.color) && !String(n.color).startsWith("var(") && !EASY_HEX_RE.test(n.color)) {
+        n.color = "blue";
+      }
       const existing = parsed.structured ? byId.get(String(n.id)) : null;
       if (existing) {
         this._notes[this._notes.indexOf(existing)] = n;
@@ -6436,19 +7305,31 @@ class EasyNotesCard extends HTMLElement {
     const pathOf = (f) => f.webkitRelativePath || f.name || "";
     // ZIP-Dateien direkt auspacken
     const expanded = [];
+    const zipImages = new Map(); // Bilder aus ZIP-Exporten (Pfad im ZIP -> Eintrag)
+    const imgStats = { added: 0, skipped: 0, failed: 0, done: new Map() };
     let zipCount = 0;
     let zipFailed = 0;
     for (const f of [...(list || [])]) {
       if (/\.zip$/i.test(f.name || "") || /zip/.test(f.type || "")) {
         zipCount++;
         try {
-          expanded.push(...(await this._zipEntries(f)));
+          expanded.push(...(await this._zipEntries(f, zipImages)));
         } catch (e) {
           console.warn("Easy Notes: ZIP konnte nicht gelesen werden", f.name, e);
           zipFailed++;
         }
       } else {
         expanded.push(f);
+      }
+    }
+    // Bilder aus einem Ordner (z. B. ausgepackter Export mit images/) wie beim ZIP übernehmen
+    for (const f of expanded) {
+      const rel = f.webkitRelativePath || "";
+      if (rel && /^image\//.test(f.type || "") && !zipImages.has(rel)) {
+        zipImages.set(rel, {
+          type: f.type,
+          bytes: () => (typeof f.arrayBuffer === "function" ? f.arrayBuffer() : new Response(f).arrayBuffer()).then((b) => new Uint8Array(b)),
+        });
       }
     }
     const files = expanded
@@ -6480,6 +7361,7 @@ class EasyNotesCard extends HTMLElement {
         continue;
       }
       read++;
+      if (zipImages.size) text = await this._importImageRefs(text, pathOf(f), zipImages, imgStats);
       const parsed = this._parseMarkdown(text, pathOf(f));
       if (parsed.categories) catLists.push(parsed.categories);
       if (!parsed.notes.length) continue;
@@ -6507,6 +7389,9 @@ class EasyNotesCard extends HTMLElement {
       return null;
     }
     const problems = [];
+    if (imgStats.skipped) problems.push(this._t("importImgSkipped").replace("{x}", imgStats.skipped));
+    if (imgStats.failed) problems.push(this._t("importImgFailed").replace("{x}", imgStats.failed));
+    total.images = imgStats.added;
     if (failed) problems.push(this._t("importFailedFiles").replace("{x}", failed));
     if (tooBig) problems.push(this._t("importTooBigFiles").replace("{x}", tooBig));
     if (!found && !catLists.length) {
@@ -6517,12 +7402,29 @@ class EasyNotesCard extends HTMLElement {
     return total;
   }
 
-  // Markdown-Einträge einer ZIP als dateiähnliche Objekte
-  async _zipEntries(file) {
+  // Markdown-Einträge einer ZIP als dateiähnliche Objekte; Bilder kommen in images (Pfad -> Eintrag)
+  async _zipEntries(file, images = null) {
     if (file.size > EASY_MAX_ZIP_BYTES) throw new Error("ZIP zu groß");
     const buf = typeof file.arrayBuffer === "function" ? await file.arrayBuffer() : await new Response(file).arrayBuffer();
     const dec = new TextDecoder();
-    return easyUnzip(buf)
+    const entries = easyUnzip(buf);
+    if (images) {
+      const types = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+      for (const e of entries) {
+        const ext = (/\.([a-z0-9]+)$/i.exec(e.name) || [])[1];
+        const type = ext && types[ext.toLowerCase()];
+        if (!type || /(^|\/)__MACOSX\//.test(e.name) || e.encrypted) continue;
+        images.set(e.name, {
+          type,
+          bytes: () => {
+            if (e.method === 0) return Promise.resolve(e.raw);
+            if (e.method === 8) return easyInflateRaw(e.raw);
+            return Promise.reject(new Error(`ZIP-Kompression ${e.method} wird nicht unterstützt`));
+          },
+        });
+      }
+    }
+    return entries
       .filter((e) => /\.(md|markdown|txt)$/i.test(e.name) && !/(^|\/)__MACOSX\//.test(e.name) && !/(^|\/)\._/.test(e.name))
       .map((e) => ({
         name: e.name.split("/").pop(),
@@ -6538,11 +7440,73 @@ class EasyNotesCard extends HTMLElement {
       }));
   }
 
+  // Relative Bildverweise (images/…) aus einem ZIP-Export: Bild in den HA-Medienordner laden
+  // und den Verweis ersetzen. Gleiche Bilder werden nur einmal hochgeladen.
+  async _importImageRefs(text, filePath, zipImages, stats) {
+    const dir = filePath.includes("/") ? filePath.slice(0, filePath.lastIndexOf("/") + 1) : "";
+    const resolve = (ref) => {
+      let r;
+      try {
+        r = decodeURI(ref);
+      } catch (_) {
+        r = ref;
+      }
+      const parts = [];
+      for (const seg of (dir + r).split("/")) {
+        if (seg === "" || seg === ".") continue;
+        if (seg === "..") parts.pop();
+        else parts.push(seg);
+      }
+      return parts.join("/");
+    };
+    const refs = [];
+    for (const m of text.matchAll(EASY_IMG_RE)) {
+      const url = m[2];
+      if (/^([a-z]+:|\/|#)/i.test(url)) continue; // nur relative Verweise
+      const key = resolve(url);
+      if (zipImages.has(key) && !refs.some((r) => r.url === url)) refs.push({ url, key });
+    }
+    if (!refs.length) return text;
+    const repl = new Map();
+    for (const { url, key } of refs) {
+      if (stats.done.has(key)) {
+        repl.set(url, stats.done.get(key));
+        continue;
+      }
+      if (!this._isAdmin()) {
+        stats.skipped++;
+        continue;
+      }
+      const entry = zipImages.get(key);
+      try {
+        const bytes = await entry.bytes();
+        const name = key.split("/").pop().replace(/[^\w.-]+/g, "_");
+        const file = new File([bytes], name, { type: entry.type });
+        let path;
+        try {
+          path = await this._uploadImage(file, name); // gleicher Name wie beim Export
+        } catch (e) {
+          if (e && (e.status === 401 || e.status === 403)) throw e;
+          path = await this._uploadImage(file); // Name belegt o. ä.: neuer Name
+        }
+        stats.done.set(key, path);
+        stats.added++;
+        repl.set(url, path);
+      } catch (e) {
+        console.warn("Easy Notes: Bild aus dem Import nicht hochgeladen", key, e);
+        if (e && (e.status === 401 || e.status === 403)) stats.skipped++;
+        else stats.failed++;
+      }
+    }
+    return text.replace(EASY_IMG_RE, (m, alt, url) => (repl.has(url) ? `![${alt}](${repl.get(url)})` : m));
+  }
+
   _finishImport(res, files, problems) {
     this._setError(problems.length ? problems.join(" ") : null);
     let msg = this._t("imported").replace("{a}", res.added).replace("{u}", res.updated);
     if (files > 1) msg = `${this._t("importedFiles").replace("{f}", files)} ${msg}`;
     if (res.skipped) msg += ` ${this._t("importedSkipped").replace("{s}", res.skipped)}`;
+    if (res.images) msg += ` ${this._t("importedImages").replace("{x}", res.images)}`;
     this._setMessage(msg);
     this._render();
     this._scheduleSave();
@@ -6595,14 +7559,46 @@ class EasyNotesCard extends HTMLElement {
     return `${fm.join("\n")}\n${n.text}\n`;
   }
 
-  _buildZip() {
+  // Bilder aus dem HA-Medienordner für den Export holen: Map Pfad -> { name, data }
+  async _collectImages() {
+    const map = new Map();
+    const used = new Set();
+    let failed = 0;
+    const paths = [];
+    for (const n of this._notes) for (const p of easyMediaImages(n.text)) if (!paths.includes(p)) paths.push(p);
+    for (const path of paths) {
+      try {
+        const url = await this._signMedia(path);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = new Uint8Array(await res.arrayBuffer());
+        let base = decodeURIComponent(path.split("/").pop()) || "bild.png";
+        base = base.replace(/[\\/:*?"<>|]/g, "_");
+        let name = base;
+        for (let i = 2; used.has(name.toLowerCase()); i++) name = base.replace(/(\.[^.]*)?$/, (ext) => `-${i}${ext || ""}`);
+        used.add(name.toLowerCase());
+        map.set(path, { name, data });
+      } catch (e) {
+        console.warn("Easy Notes: Bild für den Export nicht lesbar", path, e);
+        failed++;
+      }
+    }
+    return { map, failed };
+  }
+
+  // images: Map aus _collectImages – Bilder kommen in den Ordner images/, die Notizen verweisen relativ darauf
+  _buildZip(images = null) {
     const enc = new TextEncoder();
     const folder = `easy-notes-${this._dateStamp()}`;
     const catFile = "_easy-notes-categories.md";
     const used = new Set([catFile]); // Name für die Kategorien-Datei freihalten
+    const rewrite = (text) =>
+      !images || !images.size
+        ? text
+        : text.replace(EASY_IMG_RE, (m, alt, url) => (images.has(url) ? `![${alt}](images/${encodeURI(images.get(url).name)})` : m));
     const files = this._notes.map((n, i) => ({
       name: `${folder}/${easyFileName(easyFirstLine(n.text, 60), used)}`,
-      data: enc.encode(this._noteFileContent(n, i + 1)),
+      data: enc.encode(this._noteFileContent({ ...n, text: rewrite(n.text) }, i + 1)),
       date: n.updated ? new Date(n.updated) : new Date(),
     }));
     // Festgelegte Kategorien (Board-Zeilen) als eigene, lesbare Datei
@@ -6610,14 +7606,26 @@ class EasyNotesCard extends HTMLElement {
       const body = [`# ${this._t("edCats")}`, "", this._catListComment(), "", ...this._catList.map((c) => `- ${c}`), ""];
       files.push({ name: `${folder}/${catFile}`, data: enc.encode(body.join("\n")), date: new Date() });
     }
-    return { bytes: easyZip(files), name: `${folder}.zip`, count: this._notes.length };
+    if (images) for (const { name, data } of images.values()) files.push({ name: `${folder}/images/${name}`, data, date: new Date() });
+    return { bytes: easyZip(files), name: `${folder}.zip`, count: this._notes.length, images: images ? images.size : 0 };
   }
 
-  _exportZip() {
+  async _exportZip({ images = false } = {}) {
     try {
-      const zip = this._buildZip();
+      let collected = null;
+      if (images) {
+        this._setMessage(this._t("exportingImgs"));
+        collected = await this._collectImages();
+      }
+      const zip = this._buildZip(collected ? collected.map : null);
       this._download(new Blob([zip.bytes], { type: "application/zip" }), zip.name);
-      this._setMessage(this._t("exportedZip").replace("{n}", this._count(zip.count, "nNotes")));
+      const n = this._count(zip.count, "nNotes");
+      this._setMessage(
+        images
+          ? this._t("exportedZipImg").replace("{n}", n).replace("{x}", zip.images)
+          : this._t("exportedZip").replace("{n}", n)
+      );
+      if (collected && collected.failed) this._setError(this._t("exportImgFailed").replace("{x}", collected.failed));
       return zip;
     } catch (e) {
       console.warn("Easy Notes: ZIP-Export fehlgeschlagen", e);
@@ -6756,7 +7764,7 @@ class EasyNotesCard extends HTMLElement {
   async _load({ silent = false } = {}) {
     if (!this._hass || this._loading) return;
     if (silent && (!this._loaded || this._dirty || this._saveTimer || this._saving || this._dragging || this._graphBusy())) return;
-    if (silent && (this.shadowRoot.activeElement || (this._ed && this._ed.note))) return; // nicht während getippt wird
+    if (silent && (this.shadowRoot.activeElement || (this._ed && this._ed.note) || this._boardMenu)) return; // nicht während getippt wird
 
     this._loading = true;
     const key = this._storageKey;
@@ -6775,6 +7783,7 @@ class EasyNotesCard extends HTMLElement {
           this._dragging ||
           this._graphBusy() ||
           this.shadowRoot.activeElement ||
+          this._boardMenu ||
           (this._ed && this._ed.note))
       ) {
         // Während des Abrufs wurde bearbeitet: Ergebnis verwerfen
@@ -6901,7 +7910,7 @@ class EasyNotesCard extends HTMLElement {
   _busy() {
     const a = this.shadowRoot.activeElement;
     const typing = !!a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable);
-    return this._dragging || this._graphBusy() || typing || !!(this._ed && this._ed.note);
+    return this._dragging || this._graphBusy() || typing || !!(this._ed && this._ed.note) || !!this._boardMenu;
   }
 
   // Im Netz wird gerade gezogen oder gezoomt

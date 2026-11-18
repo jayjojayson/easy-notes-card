@@ -2,6 +2,28 @@
 
 [🇩🇪 Deutsche Version](CHANGELOG.md)
 
+## v1.1.0
+
+### Added
+- **Screenshots and images in notes:** take a screenshot and paste it with Ctrl+V straight into a note – no need to save it first. This works in the Markdown editor and when editing a note tile directly. The editor also has an image button in the toolbar (handy on a phone, e.g. a screenshot from the gallery), and image files can be dragged into the text field.
+  - Images are stored in the Home Assistant media folder in the subfolder "Easy Notes Pictures" (directly in the media folder on older HA versions that don't create subfolders). The note only contains the link `![Screenshot](/media/local/…)`. This keeps the note storage small.
+  - Deleting a note also deletes its images from the media folder. Images still used by another note are kept. Notes with images ask before deleting – without admin rights with a hint that the images stay in the media folder.
+  - New export "Export with images (ZIP)": images go into an `images/` folder in the ZIP and the notes link to them (readable in Obsidian & co. too). Importing such a ZIP uploads the images again (administrators only).
+  - Only administrators can upload (a Home Assistant rule), all users can view. Click an image to open it in full size.
+  - Board cards show the first image of a note as a small preview.
+  - Markdown images `![Text](https://…)` from the web are shown as well.
+- **Custom colors:** the color tool of a note now has a color field for any custom color next to the fixed colors (pick it with the color picker, no code needed). Also for new notes: in the card editor under "Color of new notes" → "Custom color …" with a color picker, in YAML `note_color: "#ff5722"`.
+- **Folder import:** now called "Import folder (.md)" to make clear it means a folder of Markdown files. If it contains an unpacked export with `images/`, the images are uploaded again just like from a ZIP.
+- **Board: wrap cards** (`board_wrap`, editor: "Board: wrap cards instead of scrolling sideways"): all cards of a category are shown in several rows instead of one row you scroll sideways – handy on a phone. Drag & drop also works between the rows.
+- **Tools in the board view:** every card in the board has a menu button (☰) left of the handle. It opens a menu with the same tools as the note tile: set categories, set reminder, choose color, visibility (when `note_visibility` is on) and delete note. No need to switch to the notes view anymore.
+  - Color and reminder show up on the card right away. If the categories change, the card moves to the matching row when you close the menu.
+  - Deleting asks once in the menu.
+  - Close it by clicking outside, pressing Escape or clicking ☰ again. Keyboard: up/down arrow moves between the entries.
+  - Users without admin rights don't get the menu button (read only, as before).
+
+### Changed
+- The tool panels (color, reminder, visibility, categories) are now shared code for the note tile and the board menu, so both always behave the same.
+
 ## v1.0.9
 
 ### Fixed

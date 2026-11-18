@@ -2,6 +2,28 @@
 
 [🇬🇧 English version](changelog_eng.md)
 
+## v1.1.0
+
+### Hinzugefügt
+- **Screenshots und Bilder in Notizen:** Screenshot machen und mit Strg+V direkt in eine Notiz einfügen – ohne Zwischenspeichern. Das geht im Markdown-Editor und beim direkten Bearbeiten einer Notiz-Kachel. Im Editor gibt es außerdem einen Bild-Knopf in der Toolbar (praktisch am Handy, z. B. Screenshot aus der Galerie) und Bilddateien lassen sich ins Textfeld ziehen.
+  - Bilder werden im Medienordner von Home Assistant im Unterordner „Easy Notes Pictures“ gespeichert (bei älteren HA-Versionen, die keinen Unterordner anlegen, direkt im Medienordner). In der Notiz steht nur der Verweis `![Screenshot](/media/local/…)`. So bleibt der Notizspeicher klein.
+  - Beim Löschen einer Notiz werden ihre Bilder im Medienordner mit gelöscht. Bilder, die eine andere Notiz noch verwendet, bleiben erhalten. Bei Notizen mit Bildern fragt die Card vorher nach – ohne Admin-Rechte mit dem Hinweis, dass die Bilder im Medienordner liegen bleiben.
+  - Neuer Export „Mit Bildern exportieren (ZIP)“: Die Bilder kommen in einen Ordner `images/` im ZIP, die Notizen verweisen darauf (auch in Obsidian & Co. lesbar). Beim Import eines solchen ZIP werden die Bilder wieder hochgeladen (nur Administratoren).
+  - Hochladen können nur Administratoren (Vorgabe von Home Assistant), anzeigen können alle Benutzer. Ein Klick auf ein Bild öffnet es in voller Größe.
+  - Board-Karten zeigen das erste Bild einer Notiz als kleine Vorschau.
+  - Markdown-Bilder `![Text](https://…)` aus dem Internet werden ebenfalls angezeigt.
+- **Eigene Farben:** Im Farb-Werkzeug einer Notiz gibt es neben den festen Farben ein Farbfeld für eine beliebige eigene Farbe (Auswahl per Farbwähler, keine Code-Eingabe). Auch für neue Notizen wählbar: im Card-Editor unter „Farbe neuer Notizen“ → „Eigene Farbe …“ mit Farbfeld, in YAML `note_color: "#ff5722"`.
+- **Ordner-Import:** Heißt jetzt „Ordner importieren (.md)“, damit klar ist, dass ein Ordner mit Markdown-Dateien gemeint ist. Liegt darin ein ausgepackter Export mit `images/`, werden die Bilder wie beim ZIP wieder hochgeladen.
+- **Board: Karten umbrechen** (`board_wrap`, Editor: „Board: Karten umbrechen statt seitlich scrollen“): Alle Karten einer Kategorie stehen in mehreren Reihen untereinander statt in einer seitlich scrollbaren Zeile – praktisch auf dem Handy. Drag & Drop funktioniert auch zwischen den Reihen.
+- **Werkzeuge in der Board-Ansicht:** Jede Karte im Board hat links neben dem Griff einen Menü-Knopf (☰). Er öffnet ein Menü mit denselben Werkzeugen wie an der Notiz-Kachel: Kategorien festlegen, Erinnerung festlegen, Farbe wählen, Sichtbarkeit (wenn `note_visibility` aktiv ist) und Notiz löschen. Ein Wechsel in die Notizansicht ist dafür nicht mehr nötig.
+  - Farbe und Erinnerung werden sofort an der Karte angezeigt. Ändern sich die Kategorien, wandert die Karte beim Schließen des Menüs in die passende Zeile.
+  - Löschen fragt im Menü einmal nach.
+  - Schließen per Klick außerhalb, Escape oder erneutem Klick auf ☰. Mit der Tastatur: Pfeil hoch/runter wechselt zwischen den Einträgen.
+  - Für Benutzer ohne Admin-Rechte gibt es keinen Menü-Knopf (wie bisher nur lesen).
+
+### Geändert
+- Die Werkzeug-Panels (Farbe, Erinnerung, Sichtbarkeit, Kategorien) sind jetzt gemeinsamer Code für Notiz-Kachel und Board-Menü, damit beide immer gleich funktionieren.
+
 ## v1.0.9
 
 ### Behoben

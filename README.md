@@ -32,6 +32,14 @@ If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 
 **Board view**
 - **One row per category**: notes are shown as compact cards in a row per category — like a task board (e.g. *In progress*, *Priority A*, *Priority B*).
+- **Tools on every card**: the ☰ button on a card opens categories, reminder, color, visibility and delete — no need to switch views.
+- **Wrap cards** (`board_wrap`): show all cards of a category in several rows instead of scrolling sideways — handy on a phone.
+
+**Screenshots & images**
+- **Paste screenshots** with Ctrl+V straight into a note, use the image button in the editor or drag an image file into it.
+- Images are stored in the Home Assistant media folder in the subfolder **Easy Notes Pictures**, the note only keeps the link. Uploading requires an administrator, everyone can view. Board cards show the first image as a preview.
+- **Deleting a note deletes its images** from the media folder as well (images still used by another note are kept). Notes with images ask before deleting.
+- **Export with images (ZIP)** puts the images into an `images/` folder of the ZIP; importing such a ZIP uploads them again.
 - **Drag & drop between categories**: drag a card left/right to change the order, or into another row to change its category. Works with mouse, touch (handle) and keyboard.
 - **Define categories in advance**: create categories even before they have notes, and sort the rows up and down.
 - **Pick or autocomplete categories**: on a note or in the Markdown editor popup, choose an existing category from a dropdown or let the input complete the name while you type — no more duplicates.
@@ -50,7 +58,7 @@ If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 
 **Backup**
 - **Export** all notes as one Markdown file, as separate Markdown files in a ZIP, or copy them to the clipboard as Markdown. The board categories and their order are included.
-- **Import** Markdown files, ZIP archives or whole folders — duplicates are skipped, changed notes are updated.
+- **Import** Markdown files, ZIP archives or a folder of Markdown files (.md) — duplicates are skipped, changed notes are updated. Images from an "Export with images" (ZIP or unpacked folder) are uploaded again.
 
 **Operation**
 - **Visual editor**: everything is configurable in the Home Assistant UI — no YAML required.
@@ -111,8 +119,9 @@ Everything else is optional.
 | Search | `show_search` | Show the search field. |
 | Categories | `show_categories` | Show the category bar above the notes. |
 | Number of notes | `show_count` | Show the total number of notes next to the title (while searching or filtering: found / all). |
+| Wrap board cards | `board_wrap` | Board: show all cards of a category in several rows instead of one row you scroll sideways. |
 | Number of visible notes | `max_notes` | `0` shows all notes; otherwise only this many are shown, the rest is behind a "Show more" button. |
-| Note color | `note_color` | Color of new notes: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green` or `grey`. |
+| Note color | `note_color` | Color of new notes: `random`, `yellow`, `orange`, `pink`, `purple`, `blue`, `teal`, `green`, `grey` or a custom color `#rrggbb` (in the editor: "Custom color …" with a color picker). |
 | Reminders | `reminders` | Enable reminders for each note. |
 | Sidebar notification | `sidebar_notification` | Also show a due reminder as Home Assistant notification in the sidebar. |
 | Snooze time | `snooze_minutes` | Minutes a snoozed reminder waits before it shows up again. |
@@ -128,8 +137,9 @@ default_view: notes            # notes | board | graph
 show_search: true
 show_categories: true
 show_count: false              # number of notes next to the title
+board_wrap: false              # board: wrap cards instead of scrolling sideways
 max_notes: 0                   # 0 = all notes
-note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey
+note_color: random             # random | yellow | orange | pink | purple | blue | teal | green | grey | #rrggbb
 reminders: true
 sidebar_notification: false
 snooze_minutes: 10
