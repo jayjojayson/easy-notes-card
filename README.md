@@ -16,7 +16,7 @@ Your notes are stored in the Home Assistant storage on the server — **shared f
 If you like the Card, I would appreciate a Star rating ⭐ from you. 🤗
 
 
-<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-2.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-4.png" />  <img width="50%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-3d.png" /> 
+<img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-2.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-screenshot.png" />  <img width="50%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card.png" /> <img width="49%" height="auto" alt="easy-notes-card" src="https://github.com/jayjojayson/easy-notes-card/blob/main/docs/easy-notes-card-3d.png" /> 
 
 
 ### ✨ Features
